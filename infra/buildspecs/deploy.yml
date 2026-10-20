@@ -4,32 +4,51 @@ phases:
     runtime-versions:
       nodejs: 22
     commands:
-      - pip install aws-sam-cli --quiet || true
+      - pip install aws-sam-cli --quiet
+      - npm install --ignore-scripts
   build:
     commands:
+      - chmod +x scripts/package-lambda.sh
+      - ./scripts/package-lambda.sh
       - |
-        STACK_NAME="accountabilabuddy-${ENVIRONMENT}"
+        API_URL=$(aws cloudformation describe-stacks \
+          --stack-name "accountabilabuddy-${ENVIRONMENT}" \
+          --query "Stacks[0].Outputs[?OutputKey=='HttpApiUrl'].OutputValue" \
+          --output text 2>/dev/null || true)
+        VITE_API_BASE="${API_URL}" npm run build -w @accountabilabuddy/web
+      - |
         sam deploy \
           --template-file infra/template.yaml \
-          --stack-name "$STACK_NAME" \
+          --stack-name "accountabilabuddy-${ENVIRONMENT}" \
           --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
           --no-fail-on-empty-changeset \
           --resolve-s3 \
+          --no-confirm-changeset \
           --parameter-overrides \
-            Environment=${ENVIRONMENT} \
-            AppOrigin=${APP_ORIGIN}
+            "Environment=${ENVIRONMENT}" \
+            "AppOrigin=${APP_ORIGIN}" \
+            "CognitoDomainPrefix=${COGNITO_DOMAIN_PREFIX:-abb-claytondavis-${ENVIRONMENT}}" \
+            "GoogleClientId=${GOOGLE_CLIENT_ID}" \
+            "GoogleClientSecretArn=${GOOGLE_CLIENT_SECRET_ARN}" \
+            "CertificateArn=${CERTIFICATE_ARN}"
       - |
         WEB_BUCKET=$(aws cloudformation describe-stacks \
           --stack-name "accountabilabuddy-${ENVIRONMENT}" \
           --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" \
           --output text)
-        DIST_ID=$(aws cloudformation describe-stacks \
+        DIST_DOMAIN=$(aws cloudformation describe-stacks \
           --stack-name "accountabilabuddy-${ENVIRONMENT}" \
           --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomain'].OutputValue" \
           --output text)
         aws s3 sync apps/web/dist "s3://${WEB_BUCKET}" --delete \
           --cache-control "public,max-age=31536000,immutable" \
-          --exclude "index.html" --exclude "sw.js" --exclude "manifest.webmanifest"
+          --exclude "index.html" --exclude "sw.js" --exclude "manifest.webmanifest" --exclude "registerSW.js"
         aws s3 cp apps/web/dist/index.html "s3://${WEB_BUCKET}/index.html" \
           --cache-control "public,max-age=60" --content-type text/html
-        echo "Deployed to ${DIST_ID}. Invalidate HTML paths as needed."
+        DIST_ID=$(aws cloudfront list-distributions \
+          --query "DistributionList.Items[?DomainName=='${DIST_DOMAIN}'].Id" \
+          --output text)
+        if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/index.html" "/sw.js" "/manifest.webmanifest"
+        fi
+        echo "Deployed CloudFront domain: ${DIST_DOMAIN}"

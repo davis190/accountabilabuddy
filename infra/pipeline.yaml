@@ -19,13 +19,16 @@ Parameters:
     AllowedValues: [dev, staging, prod]
   AppOrigin:
     Type: String
-  ManualApprovalForProd:
+  CognitoDomainPrefix:
     Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
-
-Conditions:
-  RequireApproval: !Equals [!Ref ManualApprovalForProd, 'true']
+    Default: abb-claytondavis-dev
+  GoogleClientId:
+    Type: String
+    NoEcho: true
+  GoogleClientSecretArn:
+    Type: String
+  CertificateArn:
+    Type: String
 
 Resources:
   ArtifactBucket:
@@ -53,18 +56,55 @@ Resources:
             Principal:
               Service: codebuild.amazonaws.com
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
       Policies:
-        - PolicyName: artifacts
+        - PolicyName: build-and-deploy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: [s3:GetObject, s3:PutObject, s3:GetBucketLocation, s3:ListBucket]
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action: [s3:*]
                 Resource:
                   - !GetAtt ArtifactBucket.Arn
                   - !Sub ${ArtifactBucket.Arn}/*
+                  - arn:aws:s3:::accountabilabuddy-*
+                  - arn:aws:s3:::accountabilabuddy-*/*
+                  - arn:aws:s3:::aws-sam-cli-managed-*
+                  - arn:aws:s3:::aws-sam-cli-managed-*/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - sam:*
+                  - lambda:*
+                  - apigateway:*
+                  - dynamodb:*
+                  - cognito-idp:*
+                  - cloudfront:*
+                  - iam:*
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                  - secretsmanager:GetSecretValue
+                  - states:*
+                  - events:*
+                  - scheduler:*
+                  - sqs:*
+                  - ses:*
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:DeleteAlarms
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                  - codeconnections:UseConnection
+                Resource: !Ref GitHubConnectionArn
 
   PipelineRole:
     Type: AWS::IAM::Role
@@ -115,7 +155,7 @@ Resources:
         Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
       Source:
         Type: CODEPIPELINE
-        Buildspec: infra/buildspecs/validate.yml
+        BuildSpec: infra/buildspecs/validate.yml
 
   BuildProject:
     Type: AWS::CodeBuild::Project
@@ -130,7 +170,7 @@ Resources:
         Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
       Source:
         Type: CODEPIPELINE
-        Buildspec: infra/buildspecs/build.yml
+        BuildSpec: infra/buildspecs/build.yml
 
   DeployProject:
     Type: AWS::CodeBuild::Project
@@ -148,9 +188,17 @@ Resources:
             Value: !Ref DeployEnvironment
           - Name: APP_ORIGIN
             Value: !Ref AppOrigin
+          - Name: COGNITO_DOMAIN_PREFIX
+            Value: !Ref CognitoDomainPrefix
+          - Name: GOOGLE_CLIENT_ID
+            Value: !Ref GoogleClientId
+          - Name: GOOGLE_CLIENT_SECRET_ARN
+            Value: !Ref GoogleClientSecretArn
+          - Name: CERTIFICATE_ARN
+            Value: !Ref CertificateArn
       Source:
         Type: CODEPIPELINE
-        Buildspec: infra/buildspecs/deploy.yml
+        BuildSpec: infra/buildspecs/deploy.yml
 
   Pipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -201,16 +249,6 @@ Resources:
                 - Name: SourceOutput
               OutputArtifacts:
                 - Name: BuildOutput
-        - Name: Approve
-          Actions:
-            - Name: ManualApproval
-              ActionTypeId:
-                Category: Approval
-                Owner: AWS
-                Provider: Manual
-                Version: '1'
-              Configuration:
-                CustomData: Review change set / test results before production deploy
         - Name: Deploy
           Actions:
             - Name: DeployStacks

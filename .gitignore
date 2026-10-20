@@ -2,6 +2,11 @@ node_modules/
 dist/
 build/
 .aws-sam/
+.aws-session.env
+.deploy-identity.json
+.deploy-certs.json
+.deploy-connections.json
+.deploy-secrets.json
 .env
 .env.*
 !.env.example
@@ -16,3 +21,8 @@ api-dist/
 .idea/
 .vscode/
 !.vscode/extensions.json
+.aws-session.env
+.deploy-identity.json
+.deploy-certs.json
+.deploy-connections.json
+.deploy-secrets.json

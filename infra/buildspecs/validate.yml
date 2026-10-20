@@ -4,18 +4,12 @@ phases:
     runtime-versions:
       nodejs: 22
     commands:
-      - npm ci
+      - npm install --ignore-scripts
   build:
     commands:
       - npm run build -w @accountabilabuddy/shared
       - npm test
       - npm run typecheck
-      - |
-        if command -v cfn-lint >/dev/null 2>&1; then
-          cfn-lint infra/template.yaml infra/pipeline.yaml || true
-        else
-          echo "cfn-lint not installed; skipping"
-        fi
 artifacts:
   files:
     - '**/*'

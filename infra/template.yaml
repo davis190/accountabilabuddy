@@ -9,10 +9,10 @@ Parameters:
     Default: dev
   AppOrigin:
     Type: String
-    Default: https://app.example.com
+    Default: https://accountabilabuddy.claytondavis.dev
   CognitoDomainPrefix:
     Type: String
-    Default: accountabilabuddy-dev
+    Default: abb-claytondavis-dev
   GoogleClientId:
     Type: String
     NoEcho: true
@@ -20,20 +20,27 @@ Parameters:
   GoogleClientSecretArn:
     Type: String
     Default: ''
-    Description: Secrets Manager ARN for Google OAuth client secret (leave empty for deferred IdP)
+    Description: Secrets Manager ARN for Google OAuth client secret JSON {clientId,clientSecret}
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM cert in us-east-1 covering CloudFront aliases
+  DomainAliases:
+    Type: CommaDelimitedList
+    Default: 'accountabilabuddy.claytondavis.dev,abb.claytondavis.dev,accountability.claytondavis.dev'
   SesFromEmail:
     Type: String
     Default: ''
   HostedZoneId:
     Type: String
     Default: ''
-  DomainName:
-    Type: String
-    Default: ''
 
 Conditions:
-  HasGoogleSecret: !Not [!Equals [!Ref GoogleClientSecretArn, '']]
-  HasDomain: !Not [!Equals [!Ref DomainName, '']]
+  HasGoogle: !And
+    - !Not [!Equals [!Ref GoogleClientId, '']]
+    - !Not [!Equals [!Ref GoogleClientSecretArn, '']]
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+  HasSes: !Not [!Equals [!Ref SesFromEmail, '']]
 
 Globals:
   Function:
@@ -267,8 +274,6 @@ Resources:
       Policies:
         PasswordPolicy:
           MinimumLength: 12
-      UserPoolAddOns:
-        AdvancedSecurityMode: ENFORCED
 
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
@@ -276,8 +281,27 @@ Resources:
       Domain: !Ref CognitoDomainPrefix
       UserPoolId: !Ref UserPool
 
+  GoogleIdentityProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Sub
+          - '{{resolve:secretsmanager:${SecretArn}:SecretString:clientSecret}}'
+          - SecretArn: !Ref GoogleClientSecretArn
+        authorize_scopes: openid email profile
+      AttributeMapping:
+        email: email
+        name: name
+        username: sub
+
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
+    DependsOn:
+      - GoogleIdentityProvider
     Properties:
       ClientName: !Sub accountabilabuddy-web-${Environment}
       UserPoolId: !Ref UserPool
@@ -285,16 +309,21 @@ Resources:
       AllowedOAuthFlowsUserPoolClient: true
       AllowedOAuthFlows: [code]
       AllowedOAuthScopes: [openid, email, profile]
-      SupportedIdentityProviders: [COGNITO]
+      SupportedIdentityProviders: [COGNITO, Google]
       CallbackURLs:
         - !Sub ${AppOrigin}/auth/callback
+        - https://abb.claytondavis.dev/auth/callback
+        - https://accountability.claytondavis.dev/auth/callback
         - http://localhost:5173/auth/callback
       LogoutURLs:
         - !Ref AppOrigin
+        - https://abb.claytondavis.dev/
+        - https://accountability.claytondavis.dev/
         - http://localhost:5173/
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
         - ALLOW_USER_SRP_AUTH
+      PreventUserExistenceErrors: ENABLED
 
   ########################
   # API + Lambda
@@ -302,19 +331,13 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      StageName: !Ref Environment
-      Auth:
-        DefaultAuthorizer: CognitoJwt
-        Authorizers:
-          CognitoJwt:
-            JwtConfiguration:
-              issuer: !Sub https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}
-              audience:
-                - !Ref UserPoolClient
-            IdentitySource: $request.header.Authorization
+      StageName: $default
       CorsConfiguration:
         AllowOrigins:
           - !Ref AppOrigin
+          - https://abb.claytondavis.dev
+          - https://accountability.claytondavis.dev
+          - http://localhost:5173
         AllowHeaders:
           - Authorization
           - Content-Type
@@ -327,12 +350,13 @@ Resources:
           - PATCH
           - DELETE
           - OPTIONS
+        AllowCredentials: true
 
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub accountabilabuddy-api-${Environment}
-      CodeUri: ../apps/api
+      CodeUri: ../.aws-sam/lambda-bundle/
       Handler: dist/lambda.handler
       Policies:
         - DynamoDBCrudPolicy:
@@ -351,8 +375,6 @@ Resources:
             TableName: !Ref InvitationsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref NotificationDeliveriesTable
-        - SESCrudPolicy:
-            IdentityName: !Ref SesFromEmail
       Events:
         Proxy:
           Type: HttpApi
@@ -360,16 +382,12 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /{proxy+}
             Method: ANY
-            Auth:
-              Authorizer: NONE
         Root:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Path: /
             Method: ANY
-            Auth:
-              Authorizer: NONE
       Environment:
         Variables:
           USERS_TABLE: !Ref UsersTable
@@ -391,7 +409,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub accountabilabuddy-notifications-${Environment}
-      CodeUri: ../apps/api
+      CodeUri: ../.aws-sam/lambda-bundle/
       Handler: dist/lambda.handler
       Timeout: 60
       Policies:
@@ -409,8 +427,6 @@ Resources:
             TableName: !Ref WeeklySnapshotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref NotificationDeliveriesTable
-        - SESCrudPolicy:
-            IdentityName: !Ref SesFromEmail
       DeadLetterQueue:
         Type: SQS
         TargetArn: !GetAtt NotificationDLQ.Arn
@@ -489,7 +505,7 @@ Resources:
             ReferrerPolicy: strict-origin-when-cross-origin
             Override: true
           ContentSecurityPolicy:
-            ContentSecurityPolicy: "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.amazoncognito.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            ContentSecurityPolicy: "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://*.execute-api.us-east-1.amazonaws.com https://*.amazoncognito.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
             Override: true
 
   WebDistribution:
@@ -499,6 +515,10 @@ Resources:
         Enabled: true
         HttpVersion: http2and3
         DefaultRootObject: index.html
+        Aliases: !If
+          - HasCertificate
+          - !Ref DomainAliases
+          - !Ref AWS::NoValue
         Origins:
           - Id: web-s3
             DomainName: !GetAtt WebBucket.RegionalDomainName
@@ -522,8 +542,12 @@ Resources:
           - ErrorCode: 404
             ResponseCode: 200
             ResponsePagePath: /index.html
-        ViewerCertificate:
-          CloudFrontDefaultCertificate: true
+        ViewerCertificate: !If
+          - HasCertificate
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
 
   WebBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -560,7 +584,7 @@ Resources:
 
 Outputs:
   HttpApiUrl:
-    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
   CloudFrontDomain:
     Value: !GetAtt WebDistribution.DomainName
   WebBucketName:
