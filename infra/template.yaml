@@ -53,7 +53,9 @@ Globals:
       Variables:
         AUTH_MODE: cognito
         APP_ORIGIN: !Ref AppOrigin
-        CORS_ORIGINS: !Ref AppOrigin
+        CORS_ORIGINS: !Sub
+          - '${AppOrigin},https://abb.claytondavis.dev,https://accountability.claytondavis.dev,https://d2fkajdnlw927r.cloudfront.net,http://localhost:5173'
+          - AppOrigin: !Ref AppOrigin
         TABLE_PREFIX: !Sub accountabilabuddy-${Environment}
         COGNITO_USER_POOL_ID: !Ref UserPool
         COGNITO_CLIENT_ID: !Ref UserPoolClient
@@ -337,6 +339,7 @@ Resources:
           - !Ref AppOrigin
           - https://abb.claytondavis.dev
           - https://accountability.claytondavis.dev
+          - https://d2fkajdnlw927r.cloudfront.net
           - http://localhost:5173
         AllowHeaders:
           - Authorization

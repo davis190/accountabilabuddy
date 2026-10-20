@@ -8,6 +8,15 @@ import {
   type ReactNode,
 } from 'react';
 import { api, setAuthHeader } from './api';
+import {
+  beginGoogleSignIn,
+  clearTokens,
+  cognitoLogoutUrl,
+  getValidAccessToken,
+  isCognitoConfigured,
+  loadTokens,
+  type CognitoTokens,
+} from './lib/cognito';
 
 export interface MeUser {
   userId: string;
@@ -29,7 +38,10 @@ interface AuthState {
   user: MeUser | null;
   memberships: MembershipSummary[];
   activeGroupId: string | null;
+  cognitoEnabled: boolean;
+  signInWithGoogle: () => Promise<void>;
   signInDev: (name?: string) => Promise<void>;
+  completeOAuthSignIn: (accessToken: string) => Promise<void>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
   setActiveGroupId: (groupId: string) => void;
@@ -37,7 +49,7 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const STORAGE_KEY = 'ab.auth';
+const DEV_STORAGE_KEY = 'ab.auth.dev';
 const GROUP_KEY = 'ab.activeGroup';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -47,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeGroupId, setActiveGroupIdState] = useState<string | null>(
     () => localStorage.getItem(GROUP_KEY),
   );
+  const cognitoEnabled = isCognitoConfigured();
 
   const refreshMe = useCallback(async () => {
     const data = await api<{
@@ -61,38 +74,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [activeGroupId]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      setAuthHeader(saved);
-      refreshMe()
-        .catch(() => {
-          localStorage.removeItem(STORAGE_KEY);
-          setAuthHeader(null);
-        })
-        .finally(() => setReady(true));
-    } else {
-      setReady(true);
-    }
+  const applyAccessToken = useCallback(async (accessToken: string) => {
+    setAuthHeader(`Bearer ${accessToken}`);
+    await refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        if (cognitoEnabled) {
+          const token = await getValidAccessToken();
+          if (token) {
+            await applyAccessToken(token);
+          }
+        } else {
+          const saved = localStorage.getItem(DEV_STORAGE_KEY);
+          if (saved) {
+            setAuthHeader(saved);
+            await refreshMe();
+          }
+        }
+      } catch {
+        clearTokens();
+        localStorage.removeItem(DEV_STORAGE_KEY);
+        setAuthHeader(null);
+        setUser(null);
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, [applyAccessToken, cognitoEnabled, refreshMe]);
+
+  const signInWithGoogle = useCallback(async () => {
+    await beginGoogleSignIn();
+  }, []);
+
+  const completeOAuthSignIn = useCallback(
+    async (accessToken: string) => {
+      await applyAccessToken(accessToken);
+    },
+    [applyAccessToken],
+  );
 
   const signInDev = useCallback(
     async (name = 'Dev User') => {
+      if (cognitoEnabled) {
+        throw new Error('Dev sign-in is disabled when Cognito is configured');
+      }
       const userId = `user_${name.toLowerCase().replace(/\s+/g, '_')}`;
       const header = `Bearer dev:${userId}|${userId}@example.com|${name}`;
-      localStorage.setItem(STORAGE_KEY, header);
+      localStorage.setItem(DEV_STORAGE_KEY, header);
       setAuthHeader(header);
       await refreshMe();
     },
-    [refreshMe],
+    [cognitoEnabled, refreshMe],
   );
 
   const signOut = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
+    const hadCognito = Boolean(loadTokens());
+    clearTokens();
+    localStorage.removeItem(DEV_STORAGE_KEY);
     setAuthHeader(null);
     setUser(null);
     setMemberships([]);
-  }, []);
+    if (hadCognito && cognitoEnabled) {
+      window.location.assign(cognitoLogoutUrl());
+    }
+  }, [cognitoEnabled]);
 
   const setActiveGroupId = useCallback((groupId: string) => {
     setActiveGroupIdState(groupId);
@@ -105,7 +153,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       memberships,
       activeGroupId,
+      cognitoEnabled,
+      signInWithGoogle,
       signInDev,
+      completeOAuthSignIn,
       signOut,
       refreshMe,
       setActiveGroupId,
@@ -115,7 +166,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       memberships,
       activeGroupId,
+      cognitoEnabled,
+      signInWithGoogle,
       signInDev,
+      completeOAuthSignIn,
       signOut,
       refreshMe,
       setActiveGroupId,
@@ -130,3 +184,5 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth outside provider');
   return ctx;
 }
+
+export type { CognitoTokens };

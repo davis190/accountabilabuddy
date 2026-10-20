@@ -13,7 +13,7 @@ interface Preview {
 
 export function JoinPage() {
   const { token = '' } = useParams();
-  const { user, signInDev, refreshMe, setActiveGroupId } = useAuth();
+  const { user, cognitoEnabled, signInWithGoogle, refreshMe, setActiveGroupId } = useAuth();
   const navigate = useNavigate();
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,14 @@ export function JoinPage() {
     setBusy(true);
     setError(null);
     try {
-      if (!user) await signInDev('Guest Buddy');
+      if (!user) {
+        if (cognitoEnabled) {
+          sessionStorage.setItem('ab.postLoginPath', `/join/${token}`);
+          await signInWithGoogle();
+          return;
+        }
+        throw new Error('Sign in required');
+      }
       const result = await api<{ group: { groupId: string } }>(
         `/v1/invitations/${encodeURIComponent(token)}/accept`,
         { method: 'POST' },

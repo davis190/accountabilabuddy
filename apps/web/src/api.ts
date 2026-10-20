@@ -1,3 +1,5 @@
+import { getValidAccessToken, isCognitoConfigured } from './lib/cognito';
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
 export class ApiError extends Error {
@@ -17,15 +19,18 @@ export function setAuthHeader(value: string | null) {
   authHeader = value;
 }
 
-export async function api<T>(
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (!headers.has('Content-Type') && init.body) {
     headers.set('Content-Type', 'application/json');
   }
-  if (authHeader) headers.set('Authorization', authHeader);
+
+  if (isCognitoConfigured()) {
+    const token = await getValidAccessToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  } else if (authHeader) {
+    headers.set('Authorization', authHeader);
+  }
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   const data = await res.json().catch(() => ({}));

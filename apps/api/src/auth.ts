@@ -55,10 +55,26 @@ export async function resolveAuthUser(
   }
 
   const issuer = `https://cognito-idp.${config.cognitoRegion}.amazonaws.com/${config.cognitoUserPoolId}`;
-  const { payload } = await jwtVerify(token, getJwks(config), {
-    issuer,
-    audience: config.cognitoClientId,
-  });
+  // Cognito access tokens use `client_id` (not `aud`). Prefer access tokens at the API.
+  const { payload } = await jwtVerify(token, getJwks(config), { issuer });
+
+  const tokenUse = payload.token_use;
+  if (tokenUse === 'access') {
+    if (payload.client_id !== config.cognitoClientId) {
+      throw unauthorized('Invalid token audience');
+    }
+  } else if (tokenUse === 'id') {
+    const audiences = Array.isArray(payload.aud)
+      ? payload.aud
+      : payload.aud
+        ? [payload.aud]
+        : [];
+    if (!audiences.includes(config.cognitoClientId)) {
+      throw unauthorized('Invalid token audience');
+    }
+  } else {
+    throw unauthorized('Invalid token use');
+  }
 
   const userId = payload.sub;
   if (!userId) throw unauthorized('Invalid token subject');

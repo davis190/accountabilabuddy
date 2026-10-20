@@ -3,10 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
 
 export function LandingPage() {
-  const { signInDev } = useAuth();
+  const { cognitoEnabled, signInWithGoogle, signInDev } = useAuth();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function continueWithGoogle() {
+    setBusy(true);
+    setError(null);
+    try {
+      await signInWithGoogle();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sign-in failed');
+      setBusy(false);
+    }
+  }
 
   async function continueDev() {
     setBusy(true);
@@ -30,12 +41,30 @@ export function LandingPage() {
       </p>
       {error && <div className="error-banner">{error}</div>}
       <div style={{ display: 'grid', gap: '0.65rem', maxWidth: 320 }}>
-        <button className="btn btn-primary" type="button" disabled={busy} onClick={continueDev}>
-          {busy ? 'Signing in…' : 'Continue (dev sign-in)'}
-        </button>
-        <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
-          Production uses Google via Cognito. Local/dev mode signs you in without OAuth.
-        </p>
+        {cognitoEnabled ? (
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={() => void continueWithGoogle()}
+          >
+            {busy ? 'Redirecting…' : 'Continue with Google'}
+          </button>
+        ) : (
+          <>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void continueDev()}
+            >
+              {busy ? 'Signing in…' : 'Continue (dev sign-in)'}
+            </button>
+            <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
+              Cognito is not configured in this build. Deployed builds use Google sign-in.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

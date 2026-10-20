@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth';
 import { Shell } from './components/Shell';
 import { LandingPage } from './pages/LandingPage';
+import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { OnboardingPage } from './pages/OnboardingPage';
 import { TodayPage } from './pages/TodayPage';
 import { WeekPage } from './pages/WeekPage';
@@ -32,6 +33,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/" element={user ? <Navigate to="/app" replace /> : <LandingPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/join/:token" element={<JoinPage />} />
       <Route
         path="/onboarding"
