@@ -1,6 +1,7 @@
 import {
   createId,
   optionalString,
+  recommendedWeeklyTarget,
   requireGoalIcon,
   requireInt,
   requireLocalDate,
@@ -11,6 +12,37 @@ import {
 import { forbidden, notFound } from '../errors.js';
 import type { Store } from '../store/types.js';
 import { requireActiveMembership } from './authz.js';
+
+/**
+ * If the member is still on the previous recommended weekly target (the default),
+ * keep that target in sync when goals change. Custom targets are left alone.
+ */
+async function syncWeeklyTargetIfOnRecommended(
+  store: Store,
+  groupId: string,
+  userId: string,
+  previousGoals: Goal[],
+) {
+  const membership = await store.getMembership(groupId, userId);
+  if (!membership || membership.status !== 'active') return;
+
+  const previousRecommended = recommendedWeeklyTarget(previousGoals);
+  if (membership.weeklyPointTarget !== previousRecommended) return;
+
+  const nextGoals = await store.listGoals(groupId, userId);
+  const nextRecommended = recommendedWeeklyTarget(nextGoals);
+  if (nextRecommended === membership.weeklyPointTarget) return;
+
+  const updated = {
+    ...membership,
+    weeklyPointTarget: nextRecommended,
+    targetEffectiveAt: new Date().toISOString(),
+    version: membership.version + 1,
+  };
+  await store.putMembership(updated);
+  const { refreshCurrentWeekTargetSnapshot } = await import('./completions.js');
+  await refreshCurrentWeekTargetSnapshot(store, groupId, updated);
+}
 
 export async function listMyGoals(store: Store, groupId: string, userId: string) {
   await requireActiveMembership(store, groupId, userId);
@@ -63,6 +95,7 @@ export async function createGoal(
     version: 1,
   };
   await store.putGoal(goal);
+  await syncWeeklyTargetIfOnRecommended(store, groupId, userId, existing);
   return goal;
 }
 
@@ -78,6 +111,7 @@ export async function updateGoal(
   if (!goal) throw notFound('Goal not found');
   if (goal.userId !== userId) throw forbidden();
 
+  const previousGoals = await store.listGoals(groupId, userId);
   const next: Goal = {
     ...goal,
     updatedAt: new Date().toISOString(),
@@ -104,6 +138,13 @@ export async function updateGoal(
     next.archivedAt = undefined;
   }
   await store.putGoal(next);
+  const affectsTarget =
+    body.targetDaysPerWeek !== undefined ||
+    body.archive === true ||
+    body.archive === false;
+  if (affectsTarget) {
+    await syncWeeklyTargetIfOnRecommended(store, groupId, userId, previousGoals);
+  }
   return next;
 }
 
@@ -118,6 +159,7 @@ export async function deleteOrArchiveGoal(
   if (!goal) throw notFound('Goal not found');
   if (goal.userId !== userId) throw forbidden();
 
+  const previousGoals = await store.listGoals(groupId, userId);
   // Check for any completions via week listing would be expensive; use GSI pattern:
   // for memory store, scan completions for this goal
   const hasHistory = await goalHasCompletions(store, goal);
@@ -129,9 +171,11 @@ export async function deleteOrArchiveGoal(
       version: goal.version + 1,
     };
     await store.putGoal(archived);
+    await syncWeeklyTargetIfOnRecommended(store, groupId, userId, previousGoals);
     return { archived: true, goal: archived };
   }
   await store.deleteGoal(groupId, userId, goalId);
+  await syncWeeklyTargetIfOnRecommended(store, groupId, userId, previousGoals);
   return { archived: false, goal: null };
 }
 

@@ -60,6 +60,7 @@ export function SettingsPage() {
       });
       setNewGoal({ name: '', targetDaysPerWeek: 2 });
       await reload();
+      await refreshMe();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not add goal');
     }

@@ -246,9 +246,11 @@ export async function updateMyMembership(
     ...membership,
     version: membership.version + 1,
   };
+  let targetChanged = false;
   if (body.weeklyPointTarget !== undefined) {
     next.weeklyPointTarget = requireInt(body.weeklyPointTarget, 'weeklyPointTarget', 1, 100);
     next.targetEffectiveAt = new Date().toISOString();
+    targetChanged = next.weeklyPointTarget !== membership.weeklyPointTarget;
   }
   if (body.timezone !== undefined) {
     const { requireTimezone } = await import('@accountabilabuddy/shared');
@@ -282,6 +284,10 @@ export async function updateMyMembership(
     );
   }
   await store.putMembership(next);
+  if (targetChanged) {
+    const { refreshCurrentWeekTargetSnapshot } = await import('./completions.js');
+    await refreshCurrentWeekTargetSnapshot(store, groupId, next);
+  }
   return next;
 }
 

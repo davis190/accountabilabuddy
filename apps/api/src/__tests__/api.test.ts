@@ -1,4 +1,6 @@
 import {
+  addDays,
+  todayInTimezone,
   weekStartDate,
 } from '@accountabilabuddy/shared';
 import { loadConfig } from '../config.js';
@@ -216,5 +218,83 @@ describe('API acceptance paths', () => {
     });
     const members = (await json(cmp)).members as Array<{ position: number; tied: boolean }>;
     expect(members.every((m) => m.position === 1 && m.tied)).toBe(true);
+  });
+
+  it('keeps the current-week point target in sync when goals change', async () => {
+    const today = todayInTimezone('UTC');
+    const currentWeekStart = weekStartDate(today, 'monday');
+    const pastDate = addDays(currentWeekStart, -7);
+
+    const create = await app.request('/v1/groups', {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Target Sync' }),
+    });
+    const group = (await json(create)).group as { groupId: string };
+
+    const first = await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Run',
+        targetDaysPerWeek: 2,
+        activeFrom: pastDate,
+      }),
+    });
+    const goal = (await json(first)).goal as { goalId: string };
+    // First goal syncs default membership target 1 → recommended 2.
+    expect(
+      (
+        await json(
+          await app.request(`/v1/groups/${group.groupId}`, { headers: auth() }),
+        )
+      ).roster as Array<{ userId: string; weeklyPointTarget: number }>,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ weeklyPointTarget: 2 })]));
+
+    // Snapshot the current week with a completion using the old target.
+    const logged = await app.request(
+      `/v1/groups/${group.groupId}/completions/${today}/${goal.goalId}`,
+      { method: 'PUT', headers: auth() },
+    );
+    expect(logged.status).toBe(200);
+    expect((await json(logged)).week as { weeklyPointTarget: number }).toMatchObject({
+      weeklyPointTarget: 2,
+    });
+
+    // Adding another goal while still on the recommended target should bump it.
+    await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Lift',
+        targetDaysPerWeek: 3,
+        activeFrom: pastDate,
+      }),
+    });
+
+    const day = await app.request(`/v1/groups/${group.groupId}/days/${today}/me`, {
+      headers: auth(),
+    });
+    expect((await json(day)).weeklyPointTarget).toBe(5);
+
+    // Past weeks keep the frozen snapshot target.
+    await app.request(`/v1/groups/${group.groupId}/completions/${pastDate}/${goal.goalId}`, {
+      method: 'PUT',
+      headers: auth(),
+    });
+    await app.request(`/v1/groups/${group.groupId}/membership/me`, {
+      method: 'PATCH',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weeklyPointTarget: 9 }),
+    });
+    const pastDay = await app.request(`/v1/groups/${group.groupId}/days/${pastDate}/me`, {
+      headers: auth(),
+    });
+    expect((await json(pastDay)).weeklyPointTarget).toBe(5);
+
+    const currentDay = await app.request(`/v1/groups/${group.groupId}/days/${today}/me`, {
+      headers: auth(),
+    });
+    expect((await json(currentDay)).weeklyPointTarget).toBe(9);
   });
 });
