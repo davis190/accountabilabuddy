@@ -1,0 +1,26 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - npm ci
+  build:
+    commands:
+      - npm run build
+      - mkdir -p artifacts/web artifacts/api
+      - cp -R apps/web/dist/* artifacts/web/
+      - cp -R apps/api/dist artifacts/api/
+      - cp apps/api/package.json artifacts/api/
+      - cd artifacts/api && npm pkg delete scripts.devDependencies && npm install --omit=dev --ignore-scripts
+      - find artifacts -type f | sort | sha256sum > artifacts/checksums.txt
+artifacts:
+  files:
+    - artifacts/**/*
+    - infra/**/*
+    - apps/api/package.json
+    - package.json
+    - package-lock.json
+    - packages/**/*
+    - apps/api/dist/**/*
+    - apps/web/dist/**/*

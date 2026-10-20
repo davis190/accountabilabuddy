@@ -1,0 +1,35 @@
+version: 0.2
+phases:
+  install:
+    runtime-versions:
+      nodejs: 22
+    commands:
+      - pip install aws-sam-cli --quiet || true
+  build:
+    commands:
+      - |
+        STACK_NAME="accountabilabuddy-${ENVIRONMENT}"
+        sam deploy \
+          --template-file infra/template.yaml \
+          --stack-name "$STACK_NAME" \
+          --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+          --no-fail-on-empty-changeset \
+          --resolve-s3 \
+          --parameter-overrides \
+            Environment=${ENVIRONMENT} \
+            AppOrigin=${APP_ORIGIN}
+      - |
+        WEB_BUCKET=$(aws cloudformation describe-stacks \
+          --stack-name "accountabilabuddy-${ENVIRONMENT}" \
+          --query "Stacks[0].Outputs[?OutputKey=='WebBucketName'].OutputValue" \
+          --output text)
+        DIST_ID=$(aws cloudformation describe-stacks \
+          --stack-name "accountabilabuddy-${ENVIRONMENT}" \
+          --query "Stacks[0].Outputs[?OutputKey=='CloudFrontDomain'].OutputValue" \
+          --output text)
+        aws s3 sync apps/web/dist "s3://${WEB_BUCKET}" --delete \
+          --cache-control "public,max-age=31536000,immutable" \
+          --exclude "index.html" --exclude "sw.js" --exclude "manifest.webmanifest"
+        aws s3 cp apps/web/dist/index.html "s3://${WEB_BUCKET}/index.html" \
+          --cache-control "public,max-age=60" --content-type text/html
+        echo "Deployed to ${DIST_ID}. Invalidate HTML paths as needed."

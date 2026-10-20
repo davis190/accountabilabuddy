@@ -1,0 +1,24 @@
+{
+  "name": "accountabilabuddy",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Lightweight habit accountability for supportive groups",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @accountabilabuddy/shared && npm run build -w @accountabilabuddy/api && npm run build -w @accountabilabuddy/web",
+    "dev": "npm run build -w @accountabilabuddy/shared && concurrently -n api,web -c teal,cyan \"npm run dev -w @accountabilabuddy/api\" \"npm run dev -w @accountabilabuddy/web\"",
+    "test": "npm run test -w @accountabilabuddy/shared && npm run test -w @accountabilabuddy/api",
+    "lint": "npm run lint -w @accountabilabuddy/shared && npm run lint -w @accountabilabuddy/api && npm run lint -w @accountabilabuddy/web",
+    "typecheck": "npm run typecheck -w @accountabilabuddy/shared && npm run typecheck -w @accountabilabuddy/api && npm run typecheck -w @accountabilabuddy/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
