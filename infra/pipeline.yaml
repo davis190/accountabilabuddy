@@ -135,6 +135,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - codestar-connections:UseConnection
+                  - codeconnections:UseConnection
                 Resource: !Ref GitHubConnectionArn
               - Effect: Allow
                 Action:
@@ -208,6 +209,16 @@ Resources:
       ArtifactStore:
         Type: S3
         Location: !Ref ArtifactBucket
+      PipelineType: V2
+      ExecutionMode: SUPERSEDED
+      Triggers:
+        - ProviderType: CodeStarSourceConnection
+          GitConfiguration:
+            SourceActionName: GitHub
+            Push:
+              - Branches:
+                  Includes:
+                    - !Ref GitHubBranch
       Stages:
         - Name: Source
           Actions:
