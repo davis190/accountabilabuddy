@@ -20,7 +20,8 @@ npm install
 npm run dev
 ```
 
-- Web: http://localhost:5173  
+- Web: http://localhost:5173
+
 - API: http://localhost:3001 (`AUTH_MODE=dev`, in-memory store)
 
 Dev sign-in uses `Authorization: Bearer dev:userId|email|name`. The landing page “Continue (dev sign-in)” sets this automatically.
