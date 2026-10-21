@@ -106,12 +106,18 @@ export function SettingsPage() {
   }
 
   async function saveTarget() {
-    await api(`/v1/groups/${groupId}/membership/me`, {
-      method: 'PATCH',
-      body: JSON.stringify({ weeklyPointTarget: target }),
-    });
-    await refreshMe();
-    setMessage('Weekly target saved — Today will show the new number');
+    setError(null);
+    try {
+      await api(`/v1/groups/${groupId}/membership/me`, {
+        method: 'PATCH',
+        body: JSON.stringify({ weeklyPointTarget: target }),
+      });
+      await refreshMe();
+      await reload();
+      setMessage('Weekly target saved — open Today to see it');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save target');
+    }
   }
 
   async function saveReminders() {

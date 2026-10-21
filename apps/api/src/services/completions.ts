@@ -1,4 +1,5 @@
 import {
+  addDays,
   assignTiedPositions,
   createId,
   goalCompletedDays,
@@ -22,24 +23,28 @@ function memberToday(membership: Membership, user: User | null | undefined): str
   return todayInTimezone(membership.timezone || user?.timezone || 'UTC');
 }
 
-function isCurrentWeek(
+/** Week is still open if its Sunday (or 7th day) has not passed yet. */
+function isOpenWeek(
   weekStart: string,
-  weekStartsOn: Weekday,
   membership: Membership,
   user: User | null | undefined,
 ): boolean {
-  return weekStart === weekStartDate(memberToday(membership, user), weekStartsOn);
+  const today = memberToday(membership, user);
+  return addDays(weekStart, 6) >= today;
 }
 
-/** Live target for the current week; frozen snapshot for past weeks. */
+/**
+ * Live membership target for the open (current/future) week; frozen snapshot for past weeks.
+ * Spec §6.5: changing a target applies to current and future weekly displays.
+ */
 export function resolveWeeklyPointTarget(
   weekStart: string,
-  weekStartsOn: Weekday,
+  _weekStartsOn: Weekday,
   membership: Membership,
   snapshot: WeeklySnapshot | null | undefined,
   user: User | null | undefined,
 ): number {
-  if (isCurrentWeek(weekStart, weekStartsOn, membership, user)) {
+  if (isOpenWeek(weekStart, membership, user)) {
     return membership.weeklyPointTarget;
   }
   return snapshot?.weeklyPointTargetSnapshot ?? membership.weeklyPointTarget;
@@ -55,7 +60,6 @@ async function ensureSnapshot(
   store: Store,
   groupId: string,
   weekStart: string,
-  weekStartsOn: Weekday,
   membership: Membership,
   goals: Goal[],
   points: number,
@@ -63,16 +67,16 @@ async function ensureSnapshot(
   const existing = await store.getWeeklySnapshot(groupId, weekStart, membership.userId);
   const now = new Date().toISOString();
   const user = await store.getUser(membership.userId);
-  const current = isCurrentWeek(weekStart, weekStartsOn, membership, user);
+  const open = isOpenWeek(weekStart, membership, user);
   if (existing) {
     const updated: WeeklySnapshot = {
       ...existing,
       points,
-      // Keep current-week snapshots aligned with live membership/goals (spec §6.5).
-      weeklyPointTargetSnapshot: current
+      // Keep open-week snapshots aligned with live membership/goals (spec §6.5).
+      weeklyPointTargetSnapshot: open
         ? membership.weeklyPointTarget
         : existing.weeklyPointTargetSnapshot,
-      goalTargetSnapshot: current ? goalTargetMap(goals) : existing.goalTargetSnapshot,
+      goalTargetSnapshot: open ? goalTargetMap(goals) : existing.goalTargetSnapshot,
       lastRecalculatedAt: now,
       version: existing.version + 1,
     };
@@ -174,7 +178,6 @@ export async function putCompletion(
     store,
     groupId,
     weekStart,
-    group.weekStartsOn,
     membership,
     goals,
     completions.length,
@@ -218,7 +221,6 @@ export async function deleteCompletion(
     store,
     groupId,
     weekStart,
-    group.weekStartsOn,
     membership,
     goals,
     completions.length,
@@ -305,7 +307,7 @@ export async function getWeekComparison(
         snapshot,
         user,
       );
-      const current = isCurrentWeek(weekStart, group.weekStartsOn, m, user);
+      const current = isOpenWeek(weekStart, m, user);
       return {
         userId: m.userId,
         displayName: user?.displayName ?? 'Member',
@@ -408,7 +410,7 @@ export async function getMemberWeekDetail(
     snapshot,
     user,
   );
-  const current = isCurrentWeek(weekStart, group.weekStartsOn, membership, user);
+  const current = isOpenWeek(weekStart, membership, user);
 
   return {
     groupId,

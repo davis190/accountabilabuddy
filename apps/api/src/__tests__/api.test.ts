@@ -297,4 +297,60 @@ describe('API acceptance paths', () => {
     });
     expect((await json(currentDay)).weeklyPointTarget).toBe(9);
   });
+
+  it('shows the live membership target on Today after changing it mid-week', async () => {
+    const today = todayInTimezone('UTC');
+    const create = await app.request('/v1/groups', {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Midweek Target' }),
+    });
+    const group = (await json(create)).group as { groupId: string };
+
+    await app.request(`/v1/groups/${group.groupId}/membership/me`, {
+      method: 'PATCH',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weeklyPointTarget: 11 }),
+    });
+
+    const goalRes = await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Walk',
+        targetDaysPerWeek: 3,
+        activeFrom: today,
+      }),
+    });
+    const goalId = ((await json(goalRes)).goal as { goalId: string }).goalId;
+
+    // First completion freezes a weekly snapshot at 11.
+    const logged = await app.request(
+      `/v1/groups/${group.groupId}/completions/${today}/${goalId}`,
+      { method: 'PUT', headers: auth() },
+    );
+    expect((await json(logged)).week as { weeklyPointTarget: number }).toMatchObject({
+      weeklyPointTarget: 11,
+    });
+
+    await app.request(`/v1/groups/${group.groupId}/membership/me`, {
+      method: 'PATCH',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weeklyPointTarget: 24 }),
+    });
+
+    const day = await app.request(`/v1/groups/${group.groupId}/days/${today}/me`, {
+      headers: auth(),
+    });
+    expect((await json(day)).weeklyPointTarget).toBe(24);
+
+    const week = weekStartDate(today, 'monday');
+    const cmp = await app.request(`/v1/groups/${group.groupId}/weeks/${week}`, {
+      headers: auth(),
+    });
+    const me = (
+      (await json(cmp)).members as Array<{ userId: string; weeklyPointTarget: number }>
+    ).find((m) => m.userId === 'user_a');
+    expect(me?.weeklyPointTarget).toBe(24);
+  });
 });

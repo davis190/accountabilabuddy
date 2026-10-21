@@ -23,9 +23,10 @@ interface DayPayload {
 }
 
 export function TodayPage() {
-  const { activeGroupId, user, memberships } = useAuth();
+  const { activeGroupId, user, memberships, refreshMe } = useAuth();
   const location = useLocation();
   const groupId = activeGroupId ?? memberships[0]?.groupId;
+  const liveTarget = memberships.find((m) => m.groupId === groupId)?.weeklyPointTarget;
   const [date, setDate] = useState(() => localToday(user?.timezone));
   const [day, setDay] = useState<DayPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,12 +42,27 @@ export function TodayPage() {
     if (!groupId) return;
     setError(null);
     try {
-      const data = await api<DayPayload>(`/v1/groups/${groupId}/days/${date}/me`);
-      setDay(data);
+      const today = localToday(user?.timezone);
+      // Jump to today when the stored day is in another week (stale tab / overnight).
+      const viewDate =
+        weekStartMonday(date) === weekStartMonday(today) ? date : today;
+      if (viewDate !== date) setDate(viewDate);
+      const data = await api<DayPayload>(`/v1/groups/${groupId}/days/${viewDate}/me`);
+      // Prefer the live membership target from /v1/me so Settings changes show immediately.
+      const target = liveTarget ?? data.weeklyPointTarget;
+      setDay({
+        ...data,
+        weeklyPointTarget: target,
+        progressPercent: Math.round((data.pointsEarned / Math.max(1, target)) * 1000) / 10,
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load today');
     }
-  }, [groupId, date]);
+  }, [groupId, date, user?.timezone, liveTarget]);
+
+  useEffect(() => {
+    void refreshMe().catch(() => undefined);
+  }, [location.key, refreshMe]);
 
   useEffect(() => {
     void load();
@@ -54,11 +70,14 @@ export function TodayPage() {
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void load();
+      if (document.visibilityState === 'visible') {
+        void refreshMe().catch(() => undefined);
+        void load();
+      }
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [load]);
+  }, [load, refreshMe]);
 
   useEffect(() => {
     if (!toast) return;
@@ -163,7 +182,11 @@ export function TodayPage() {
     );
   }
 
-  const over = (day?.progressPercent ?? 0) > 100;
+  const displayTarget = liveTarget ?? day?.weeklyPointTarget ?? 1;
+  const displayPercent = day
+    ? Math.round((day.pointsEarned / Math.max(1, displayTarget)) * 1000) / 10
+    : 0;
+  const over = displayPercent > 100;
 
   return (
     <div className="stack-gap">
@@ -180,14 +203,14 @@ export function TodayPage() {
         <div className="panel">
           <div className="progress-row">
             <strong>
-              {day.pointsEarned} / {day.weeklyPointTarget} points this week
+              {day.pointsEarned} / {displayTarget} points this week
             </strong>
-            <span className="muted">{day.progressPercent}%</span>
+            <span className="muted">{displayPercent}%</span>
           </div>
           <div className="progress-track" aria-hidden>
             <div
               className={`progress-fill${over ? ' over' : ''}`}
-              style={{ width: `${Math.min(day.progressPercent, 140)}%` }}
+              style={{ width: `${Math.min(displayPercent, 140)}%` }}
             />
           </div>
         </div>
