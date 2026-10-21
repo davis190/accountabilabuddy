@@ -95,7 +95,8 @@ function rankKey(m: RankInput): string {
 
 export function isGoalActiveOnDate(goal: Goal, localDate: string): boolean {
   if (localDate < goal.activeFrom) return false;
-  if (goal.archivedAt && localDate > goal.archivedAt) return false;
+  // archivedAt is the first day the goal is no longer on the checklist
+  if (goal.archivedAt && localDate >= goal.archivedAt) return false;
   return true;
 }
 

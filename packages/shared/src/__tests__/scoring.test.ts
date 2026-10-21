@@ -113,6 +113,7 @@ describe('scoring', () => {
     };
     expect(isGoalActiveOnDate(goal, '2026-10-09')).toBe(false);
     expect(isGoalActiveOnDate(goal, '2026-10-15')).toBe(true);
+    expect(isGoalActiveOnDate(goal, '2026-10-20')).toBe(false);
     expect(isGoalActiveOnDate(goal, '2026-10-21')).toBe(false);
   });
 });

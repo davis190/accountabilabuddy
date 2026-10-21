@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { addDays, dayNum, localToday, shortDow, weekStartMonday } from '../lib/dates';
@@ -24,6 +24,7 @@ interface DayPayload {
 
 export function TodayPage() {
   const { activeGroupId, user, memberships } = useAuth();
+  const location = useLocation();
   const groupId = activeGroupId ?? memberships[0]?.groupId;
   const [date, setDate] = useState(() => localToday(user?.timezone));
   const [day, setDay] = useState<DayPayload | null>(null);
@@ -49,6 +50,14 @@ export function TodayPage() {
 
   useEffect(() => {
     void load();
+  }, [load, location.key]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, [load]);
 
   useEffect(() => {
@@ -86,9 +95,31 @@ export function TodayPage() {
 
     try {
       if (goal.checked) {
-        await api(`/v1/groups/${groupId}/completions/${date}/${goal.goalId}`, {
+        const res = await api<{
+          week: { pointsEarned: number; weeklyPointTarget: number; progressPercent: number };
+          goalProgress?: { completedDays: number; targetDays: number };
+        }>(`/v1/groups/${groupId}/completions/${date}/${goal.goalId}`, {
           method: 'DELETE',
         });
+        setDay((cur) =>
+          cur
+            ? {
+                ...cur,
+                pointsEarned: res.week.pointsEarned,
+                weeklyPointTarget: res.week.weeklyPointTarget,
+                progressPercent: res.week.progressPercent,
+                goals: cur.goals.map((g) =>
+                  g.goalId === goal.goalId
+                    ? {
+                        ...g,
+                        checked: false,
+                        completedDaysThisWeek: res.goalProgress?.completedDays ?? g.completedDaysThisWeek,
+                      }
+                    : g,
+                ),
+              }
+            : cur,
+        );
         setToast('Unchecked · Undo by tapping again');
       } else {
         const res = await api<{

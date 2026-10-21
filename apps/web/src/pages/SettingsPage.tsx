@@ -25,6 +25,7 @@ export function SettingsPage() {
   const [weeklyEnabled, setWeeklyEnabled] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savingGoalId, setSavingGoalId] = useState<string | null>(null);
 
   async function reload() {
     if (!groupId) return;
@@ -61,8 +62,46 @@ export function SettingsPage() {
       setNewGoal({ name: '', targetDaysPerWeek: 2 });
       await reload();
       await refreshMe();
+      setMessage('Goal added — it will show on Today');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not add goal');
+    }
+  }
+
+  async function saveGoal(goal: Goal) {
+    setError(null);
+    setSavingGoalId(goal.goalId);
+    try {
+      await api(`/v1/groups/${groupId}/goals/${goal.goalId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: goal.name.trim(),
+          targetDaysPerWeek: goal.targetDaysPerWeek,
+        }),
+      });
+      await reload();
+      await refreshMe();
+      setMessage('Goal updated — check Today for the change');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update goal');
+    } finally {
+      setSavingGoalId(null);
+    }
+  }
+
+  async function removeGoal(goal: Goal) {
+    if (!confirm(`Remove “${goal.name}”? Past check-offs stay in history.`)) return;
+    setError(null);
+    setSavingGoalId(goal.goalId);
+    try {
+      await api(`/v1/groups/${groupId}/goals/${goal.goalId}`, { method: 'DELETE' });
+      await reload();
+      await refreshMe();
+      setMessage('Goal removed from Today');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove goal');
+    } finally {
+      setSavingGoalId(null);
     }
   }
 
@@ -72,7 +111,7 @@ export function SettingsPage() {
       body: JSON.stringify({ weeklyPointTarget: target }),
     });
     await refreshMe();
-    setMessage('Weekly target saved');
+    setMessage('Weekly target saved — Today will show the new number');
   }
 
   async function saveReminders() {
@@ -115,15 +154,71 @@ export function SettingsPage() {
       <section className="panel stack-gap">
         <h3 style={{ margin: 0 }}>Your goals</h3>
         <p className="muted" style={{ margin: 0 }}>
-          Frequency is a planning target — extra days still earn points.
+          Frequency is a planning target — extra days still earn points. Edits apply on Today
+          right away.
         </p>
-        <ul>
-          {goals.map((g) => (
-            <li key={g.goalId}>
-              {g.name} · {g.targetDaysPerWeek}x/week
-            </li>
-          ))}
-        </ul>
+        {goals.length === 0 ? (
+          <p className="muted" style={{ margin: 0 }}>
+            No goals yet — add one below.
+          </p>
+        ) : (
+          <div className="stack-gap">
+            {goals.map((g) => (
+              <div key={g.goalId} className="form-stack" style={{ gap: '0.5rem' }}>
+                <label>
+                  Name
+                  <input
+                    value={g.name}
+                    maxLength={60}
+                    onChange={(e) =>
+                      setGoals((list) =>
+                        list.map((x) =>
+                          x.goalId === g.goalId ? { ...x, name: e.target.value } : x,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <label>
+                  Days / week
+                  <input
+                    type="number"
+                    min={1}
+                    max={7}
+                    value={g.targetDaysPerWeek}
+                    onChange={(e) =>
+                      setGoals((list) =>
+                        list.map((x) =>
+                          x.goalId === g.goalId
+                            ? { ...x, targetDaysPerWeek: Number(e.target.value) }
+                            : x,
+                        ),
+                      )
+                    }
+                  />
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={savingGoalId === g.goalId || !g.name.trim()}
+                    onClick={() => void saveGoal(g)}
+                  >
+                    {savingGoalId === g.goalId ? 'Saving…' : 'Save goal'}
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    type="button"
+                    disabled={savingGoalId === g.goalId}
+                    onClick={() => void removeGoal(g)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="form-stack">
           <label>
             New goal
@@ -145,7 +240,12 @@ export function SettingsPage() {
               }
             />
           </label>
-          <button className="btn btn-primary" type="button" onClick={() => void addGoal()}>
+          <button
+            className="btn btn-primary"
+            type="button"
+            disabled={!newGoal.name.trim()}
+            onClick={() => void addGoal()}
+          >
             Add goal
           </button>
         </div>
