@@ -4,12 +4,12 @@
   "type": "module",
   "main": "./dist/lambda.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "dev": "tsx watch src/local.ts",
     "start": "node dist/local.js",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit",
+    "lint": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@accountabilabuddy/shared": "*",

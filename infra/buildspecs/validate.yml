@@ -4,7 +4,8 @@ phases:
     runtime-versions:
       nodejs: 22
     commands:
-      - npm install --ignore-scripts
+      - rm -rf node_modules
+      - npm ci --ignore-scripts --include=dev
   build:
     commands:
       - npm run build -w @accountabilabuddy/shared

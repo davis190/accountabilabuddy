@@ -4,7 +4,9 @@ phases:
     runtime-versions:
       nodejs: 22
     commands:
-      - npm install --ignore-scripts
+      # Never reuse a prior node_modules; artifact zips break .bin symlinks (tsc → ../lib/tsc.js).
+      - rm -rf node_modules
+      - npm ci --ignore-scripts --include=dev
   build:
     commands:
       - npm run build
@@ -14,4 +16,7 @@ phases:
 artifacts:
   files:
     - '**/*'
+  exclude-paths:
+    - node_modules/**/*
+    - '**/node_modules/**/*'
   discard-paths: no

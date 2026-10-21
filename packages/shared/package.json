@@ -11,10 +11,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit",
+    "lint": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

@@ -5,7 +5,9 @@ phases:
       nodejs: 22
     commands:
       - pip install aws-sam-cli --quiet
-      - npm install --ignore-scripts
+      # Build artifacts must not carry node_modules; if they do, .bin symlinks are broken.
+      - rm -rf node_modules
+      - npm ci --ignore-scripts --include=dev
   build:
     commands:
       - chmod +x scripts/package-lambda.sh
