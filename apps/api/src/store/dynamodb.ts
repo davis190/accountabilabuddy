@@ -23,6 +23,7 @@ import {
   groupUserWeekKey,
   groupWeekKey,
   weekStartDate,
+  type AwayDay,
   type Completion,
   type Goal,
   type Group,
@@ -44,6 +45,7 @@ export interface DynamoTableNames {
   weeklySnapshots: string;
   invitations: string;
   notificationDeliveries: string;
+  awayDays: string;
 }
 
 export function tablesFromEnv(env: NodeJS.ProcessEnv = process.env): DynamoTableNames {
@@ -57,6 +59,7 @@ export function tablesFromEnv(env: NodeJS.ProcessEnv = process.env): DynamoTable
     invitations: env.INVITATIONS_TABLE ?? `${env.TABLE_PREFIX}-invitations`,
     notificationDeliveries:
       env.NOTIFICATION_DELIVERIES_TABLE ?? `${env.TABLE_PREFIX}-notification-deliveries`,
+    awayDays: env.AWAY_DAYS_TABLE ?? `${env.TABLE_PREFIX}-away-days`,
   };
 }
 
@@ -70,6 +73,49 @@ export class DynamoDbStore implements Store {
     this.doc = DynamoDBDocumentClient.from(client, {
       marshallOptions: { removeUndefinedValues: true },
     });
+  }
+
+  async getAwayDay(userId: string, localDate: string): Promise<AwayDay | null> {
+    const res = await this.doc.send(
+      new GetCommand({
+        TableName: this.tables.awayDays,
+        Key: { userId, localDate },
+      }),
+    );
+    return (res.Item as AwayDay) ?? null;
+  }
+
+  async putAwayDay(away: AwayDay): Promise<void> {
+    await this.doc.send(
+      new PutCommand({ TableName: this.tables.awayDays, Item: away }),
+    );
+  }
+
+  async deleteAwayDay(userId: string, localDate: string): Promise<boolean> {
+    await this.doc.send(
+      new DeleteCommand({
+        TableName: this.tables.awayDays,
+        Key: { userId, localDate },
+      }),
+    );
+    return true;
+  }
+
+  async listAwayDaysInRange(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<AwayDay[]> {
+    const res = await this.doc.send(
+      new QueryCommand({
+        TableName: this.tables.awayDays,
+        KeyConditionExpression: 'userId = :u AND localDate BETWEEN :from AND :to',
+        ExpressionAttributeValues: { ':u': userId, ':from': from, ':to': to },
+      }),
+    );
+    return ((res.Items as AwayDay[]) ?? []).sort((a, b) =>
+      a.localDate.localeCompare(b.localDate),
+    );
   }
 
   async getUser(userId: string): Promise<User | null> {

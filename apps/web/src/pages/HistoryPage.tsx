@@ -12,6 +12,7 @@ interface RosterMember {
 
 interface HistoryDay {
   localDate: string;
+  away?: boolean;
   completions: Array<{ goalId: string; name: string }>;
 }
 
@@ -68,6 +69,12 @@ export function HistoryPage() {
     return map;
   }, [days]);
 
+  const awayDays = useMemo(() => {
+    const set = new Set<string>();
+    for (const d of days) if (d.away) set.add(d.localDate);
+    return set;
+  }, [days]);
+
   const detail = days.find((d) => d.localDate === selected);
 
   if (!groupId) return null;
@@ -97,27 +104,36 @@ export function HistoryPage() {
           {calendar.map((d) => {
             const n = counts.get(d) ?? 0;
             const level = n === 0 ? 0 : Math.min(4, n);
+            const away = awayDays.has(d);
             return (
               <button
                 key={d}
                 type="button"
-                className={`heat-cell level-${level}${selected === d ? ' selected' : ''}`}
-                aria-label={`${d}: ${n} completions`}
+                className={`heat-cell level-${level}${selected === d ? ' selected' : ''}${away ? ' away' : ''}`}
+                aria-label={
+                  away ? `${d}: Away` : `${d}: ${n} completions`
+                }
                 onClick={() => setSelected(d)}
               />
             );
           })}
         </div>
         <p className="muted" style={{ fontSize: '0.8rem', marginBottom: 0 }}>
-          Last 28 days · darker means more goals checked that day
+          Last 28 days · darker means more goals checked · outlined = Away
         </p>
       </div>
 
       <div className="panel">
         <h3 style={{ marginTop: 0 }}>{selected ?? 'Pick a day'}</h3>
         {!selected && <p className="muted">Select a day on the calendar.</p>}
+        {selected && detail?.away && (
+          <p className="muted">Away — no check-offs this day.</p>
+        )}
         {selected && !detail && <p className="muted">No completions logged.</p>}
-        {detail && (
+        {selected && detail && !detail.away && detail.completions.length === 0 && (
+          <p className="muted">No completions logged.</p>
+        )}
+        {detail && detail.completions.length > 0 && (
           <ul>
             {detail.completions.map((c) => (
               <li key={c.goalId}>{c.name}</li>
@@ -148,7 +164,10 @@ export function HistoryPage() {
                 >
                   {d.localDate}
                 </button>
-                : {d.completions.map((c) => c.name).join(', ')}
+                :{' '}
+                {d.away
+                  ? 'Away'
+                  : d.completions.map((c) => c.name).join(', ') || '—'}
               </li>
             ))}
           </ul>

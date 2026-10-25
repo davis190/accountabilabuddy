@@ -13,6 +13,7 @@ interface MemberRow {
   position: number;
   tied: boolean;
   statusLabel: string;
+  awayDates?: string[];
   goalProgress: Array<{
     goalId: string;
     name: string;
@@ -95,6 +96,9 @@ export function WeekPage() {
                   <div className="muted">
                     {m.pointsEarned} / {m.weeklyPointTarget} pts · {m.progressPercent}% ·{' '}
                     {m.statusLabel}
+                    {m.awayDates && m.awayDates.length > 0
+                      ? ` · ${m.awayDates.length} Away`
+                      : ''}
                   </div>
                   <div className="progress-track" aria-hidden>
                     <div

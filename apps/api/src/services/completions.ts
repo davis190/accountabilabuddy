@@ -1,41 +1,59 @@
 import {
-  addDays,
+  adjustedGoalTarget,
+  adjustedWeeklyPointTarget,
   assignTiedPositions,
+  availableDaysInWeek,
   createId,
   goalCompletedDays,
   isFutureLocalDate,
   isGoalActiveOnDate,
   progressPercent,
   todayInTimezone,
-  weekStartDate,
   type Completion,
   type Goal,
   type Membership,
   type User,
   type Weekday,
   type WeeklySnapshot,
+  weekStartDate,
 } from '@accountabilabuddy/shared';
 import { badRequest, forbidden, notFound } from '../errors.js';
 import type { Store } from '../store/types.js';
 import { requireActiveMembership } from './authz.js';
+import { listAwayDatesForWeek, listAwayDatesInRange } from './away.js';
+import {
+  activeGoalTargets,
+  ensureSnapshotForMembership,
+  isOpenWeek,
+  refreshCurrentWeekTargetSnapshot as refreshSnapshot,
+} from './snapshots.js';
 
-function memberToday(membership: Membership, user: User | null | undefined): string {
-  return todayInTimezone(membership.timezone || user?.timezone || 'UTC');
+export { refreshSnapshot as refreshCurrentWeekTargetSnapshot };
+
+function effectiveGoalTarget(
+  baseTarget: number,
+  availableDays: number,
+  open: boolean,
+  snapshotTarget: number | undefined,
+): number {
+  if (!open) return snapshotTarget ?? baseTarget;
+  return adjustedGoalTarget(baseTarget, availableDays);
 }
 
-/** Week is still open if its Sunday (or 7th day) has not passed yet. */
-function isOpenWeek(
-  weekStart: string,
-  membership: Membership,
-  user: User | null | undefined,
-): boolean {
-  const today = memberToday(membership, user);
-  return addDays(weekStart, 6) >= today;
+function effectiveWeeklyTarget(
+  baseTarget: number,
+  goals: Goal[],
+  availableDays: number,
+  open: boolean,
+  snapshotTarget: number | undefined,
+): number {
+  if (!open) return snapshotTarget ?? baseTarget;
+  return adjustedWeeklyPointTarget(baseTarget, activeGoalTargets(goals), availableDays);
 }
 
 /**
  * Live membership target for the open (current/future) week; frozen snapshot for past weeks.
- * Spec §6.5: changing a target applies to current and future weekly displays.
+ * Open-week values include Away adjustments.
  */
 export function resolveWeeklyPointTarget(
   weekStart: string,
@@ -43,79 +61,21 @@ export function resolveWeeklyPointTarget(
   membership: Membership,
   snapshot: WeeklySnapshot | null | undefined,
   user: User | null | undefined,
+  goals: Goal[] = [],
+  awayDayCount = 0,
 ): number {
-  if (isOpenWeek(weekStart, membership, user)) {
-    return membership.weeklyPointTarget;
-  }
-  return snapshot?.weeklyPointTargetSnapshot ?? membership.weeklyPointTarget;
-}
-
-function goalTargetMap(goals: Goal[]): Record<string, number> {
-  return Object.fromEntries(
-    goals.filter((g) => !g.archivedAt).map((g) => [g.goalId, g.targetDaysPerWeek]),
+  const open = isOpenWeek(weekStart, membership, user);
+  const available = availableDaysInWeek(awayDayCount);
+  return effectiveWeeklyTarget(
+    membership.weeklyPointTarget,
+    goals,
+    available,
+    open,
+    snapshot?.weeklyPointTargetSnapshot,
   );
 }
 
-async function ensureSnapshot(
-  store: Store,
-  groupId: string,
-  weekStart: string,
-  membership: Membership,
-  goals: Goal[],
-  points: number,
-): Promise<WeeklySnapshot> {
-  const existing = await store.getWeeklySnapshot(groupId, weekStart, membership.userId);
-  const now = new Date().toISOString();
-  const user = await store.getUser(membership.userId);
-  const open = isOpenWeek(weekStart, membership, user);
-  if (existing) {
-    const updated: WeeklySnapshot = {
-      ...existing,
-      points,
-      // Keep open-week snapshots aligned with live membership/goals (spec §6.5).
-      weeklyPointTargetSnapshot: open
-        ? membership.weeklyPointTarget
-        : existing.weeklyPointTargetSnapshot,
-      goalTargetSnapshot: open ? goalTargetMap(goals) : existing.goalTargetSnapshot,
-      lastRecalculatedAt: now,
-      version: existing.version + 1,
-    };
-    await store.putWeeklySnapshot(updated);
-    return updated;
-  }
-  const snapshot: WeeklySnapshot = {
-    groupId,
-    weekStartDate: weekStart,
-    userId: membership.userId,
-    weeklyPointTargetSnapshot: membership.weeklyPointTarget,
-    points,
-    goalTargetSnapshot: goalTargetMap(goals),
-    lastRecalculatedAt: now,
-    version: 1,
-  };
-  await store.putWeeklySnapshot(snapshot);
-  return snapshot;
-}
-
-/** Refresh the current week's target snapshot after a membership target change. */
-export async function refreshCurrentWeekTargetSnapshot(
-  store: Store,
-  groupId: string,
-  membership: Membership,
-): Promise<void> {
-  const group = await store.getGroup(groupId);
-  if (!group) return;
-  const user = await store.getUser(membership.userId);
-  const weekStart = weekStartDate(memberToday(membership, user), group.weekStartsOn);
-  const existing = await store.getWeeklySnapshot(groupId, weekStart, membership.userId);
-  if (!existing) return;
-  await store.putWeeklySnapshot({
-    ...existing,
-    weeklyPointTargetSnapshot: membership.weeklyPointTarget,
-    lastRecalculatedAt: new Date().toISOString(),
-    version: existing.version + 1,
-  });
-}
+export { ensureSnapshotForMembership };
 
 function weekPayload(
   weekStart: string,
@@ -123,6 +83,7 @@ function weekPayload(
   weeklyPointTarget: number,
   goal: Goal | null,
   completions: Completion[],
+  targetDays: number,
 ) {
   return {
     week: {
@@ -134,7 +95,7 @@ function weekPayload(
     goalProgress: goal
       ? {
           completedDays: goalCompletedDays(completions, goal.goalId),
-          targetDays: goal.targetDaysPerWeek,
+          targetDays,
         }
       : undefined,
   };
@@ -152,6 +113,10 @@ export async function putCompletion(
   const today = todayInTimezone(membership.timezone || user?.timezone || 'UTC');
   if (isFutureLocalDate(localDate, today)) {
     throw badRequest('Future dates cannot be completed', { localDate: 'cannot be in the future' });
+  }
+  const away = await store.getAwayDay(userId, localDate);
+  if (away) {
+    throw badRequest('Cannot check goals on an Away day', { localDate: 'marked Away' });
   }
   const goal = await store.getGoal(groupId, userId, goalId);
   if (!goal || goal.userId !== userId) throw notFound('Goal not found');
@@ -174,7 +139,9 @@ export async function putCompletion(
   const result = await store.putCompletion(completion);
   const completions = await store.listCompletionsForWeek(groupId, userId, weekStart);
   const goals = await store.listGoals(groupId, userId);
-  const snapshot = await ensureSnapshot(
+  const awayDates = await listAwayDatesForWeek(store, userId, weekStart);
+  const available = availableDaysInWeek(awayDates.length);
+  const snapshot = await ensureSnapshotForMembership(
     store,
     groupId,
     weekStart,
@@ -188,7 +155,10 @@ export async function putCompletion(
     membership,
     snapshot,
     user,
+    goals,
+    awayDates.length,
   );
+  const goalTarget = adjustedGoalTarget(goal.targetDaysPerWeek, available);
 
   return {
     completion: {
@@ -198,7 +168,7 @@ export async function putCompletion(
       points: 1,
       created: result.created,
     },
-    ...weekPayload(weekStart, completions.length, target, goal, completions),
+    ...weekPayload(weekStart, completions.length, target, goal, completions, goalTarget),
   };
 }
 
@@ -217,7 +187,9 @@ export async function deleteCompletion(
   await store.deleteCompletion(groupId, userId, weekStart, localDate, goalId);
   const completions = await store.listCompletionsForWeek(groupId, userId, weekStart);
   const goals = await store.listGoals(groupId, userId);
-  const snapshot = await ensureSnapshot(
+  const awayDates = await listAwayDatesForWeek(store, userId, weekStart);
+  const available = availableDaysInWeek(awayDates.length);
+  const snapshot = await ensureSnapshotForMembership(
     store,
     groupId,
     weekStart,
@@ -232,11 +204,14 @@ export async function deleteCompletion(
     membership,
     snapshot,
     user,
+    goals,
+    awayDates.length,
   );
+  const goalTarget = goal ? adjustedGoalTarget(goal.targetDaysPerWeek, available) : 0;
 
   return {
     deleted: true,
-    ...weekPayload(weekStart, completions.length, target, goal, completions),
+    ...weekPayload(weekStart, completions.length, target, goal, completions, goalTarget),
   };
 }
 
@@ -247,9 +222,8 @@ export async function getMyDay(
   localDate: string,
 ) {
   const { group, membership } = await requireActiveMembership(store, groupId, userId);
-  const goals = (await store.listGoals(groupId, userId)).filter((g) =>
-    isGoalActiveOnDate(g, localDate),
-  );
+  const allGoals = await store.listGoals(groupId, userId);
+  const goals = allGoals.filter((g) => isGoalActiveOnDate(g, localDate));
   const weekStart = weekStartDate(localDate, group.weekStartsOn);
   const completions = await store.listCompletionsForWeek(groupId, userId, weekStart);
   const completedGoalIds = new Set(
@@ -257,17 +231,25 @@ export async function getMyDay(
   );
   const snapshot = await store.getWeeklySnapshot(groupId, weekStart, userId);
   const user = await store.getUser(userId);
+  const awayDates = await listAwayDatesForWeek(store, userId, weekStart);
+  const away = awayDates.includes(localDate);
+  const available = availableDaysInWeek(awayDates.length);
+  const open = isOpenWeek(weekStart, membership, user);
   const target = resolveWeeklyPointTarget(
     weekStart,
     group.weekStartsOn,
     membership,
     snapshot,
     user,
+    allGoals,
+    awayDates.length,
   );
 
   return {
     localDate,
     weekStartDate: weekStart,
+    away,
+    awayDates,
     pointsEarned: completions.length,
     weeklyPointTarget: target,
     progressPercent: progressPercent(completions.length, target),
@@ -275,6 +257,13 @@ export async function getMyDay(
       ...g,
       checked: completedGoalIds.has(g.goalId),
       completedDaysThisWeek: goalCompletedDays(completions, g.goalId),
+      targetDaysPerWeek: effectiveGoalTarget(
+        g.targetDaysPerWeek,
+        available,
+        open,
+        snapshot?.goalTargetSnapshot[g.goalId],
+      ),
+      baseTargetDaysPerWeek: g.targetDaysPerWeek,
     })),
   };
 }
@@ -300,30 +289,41 @@ export async function getWeekComparison(
       const completions = await store.listCompletionsForWeek(groupId, m.userId, weekStart);
       const goals = await store.listGoals(groupId, m.userId);
       const snapshot = await store.getWeeklySnapshot(groupId, weekStart, m.userId);
+      const awayDates = await listAwayDatesForWeek(store, m.userId, weekStart);
+      const available = availableDaysInWeek(awayDates.length);
+      const current = isOpenWeek(weekStart, m, user);
       const target = resolveWeeklyPointTarget(
         weekStart,
         group.weekStartsOn,
         m,
         snapshot,
         user,
+        goals,
+        awayDates.length,
       );
-      const current = isOpenWeek(weekStart, m, user);
       return {
         userId: m.userId,
         displayName: user?.displayName ?? 'Member',
         avatarUrl: user?.avatarUrl,
         pointsEarned: completions.length,
         weeklyPointTarget: target,
+        awayDates,
         goalProgress: goals
-          .filter((g) => isGoalActiveOnDate(g, weekStart) || completions.some((c) => c.goalId === g.goalId))
+          .filter(
+            (g) =>
+              isGoalActiveOnDate(g, weekStart) || completions.some((c) => c.goalId === g.goalId),
+          )
           .map((g) => ({
             goalId: g.goalId,
             name: g.name,
             icon: g.icon,
             completedDays: goalCompletedDays(completions, g.goalId),
-            targetDays: current
-              ? g.targetDaysPerWeek
-              : (snapshot?.goalTargetSnapshot[g.goalId] ?? g.targetDaysPerWeek),
+            targetDays: effectiveGoalTarget(
+              g.targetDaysPerWeek,
+              available,
+              current,
+              snapshot?.goalTargetSnapshot[g.goalId],
+            ),
           })),
       };
     }),
@@ -360,6 +360,8 @@ export async function getMemberHistory(
   );
   const goals = await store.listGoals(groupId, memberId);
   const goalMap = new Map(goals.map((g) => [g.goalId, g]));
+  const awayDates = await listAwayDatesInRange(store, memberId, from, to);
+  const awaySet = new Set(awayDates);
 
   const byDate = new Map<string, Array<{ goalId: string; name: string; icon?: string }>>();
   for (const c of completions) {
@@ -373,15 +375,24 @@ export async function getMemberHistory(
     byDate.set(c.localDate, list);
   }
 
+  for (const d of awayDates) {
+    if (!byDate.has(d)) byDate.set(d, []);
+  }
+
   const days = [...byDate.entries()]
     .sort(([a], [b]) => b.localeCompare(a))
-    .map(([localDate, items]) => ({ localDate, completions: items }));
+    .map(([localDate, items]) => ({
+      localDate,
+      away: awaySet.has(localDate),
+      completions: items,
+    }));
 
   return {
     groupId,
     userId: memberId,
     from,
     to,
+    awayDates,
     days,
     readOnly: memberId !== viewerId,
   };
@@ -403,12 +414,16 @@ export async function getMemberWeekDetail(
   const goals = await store.listGoals(groupId, memberId);
   const snapshot = await store.getWeeklySnapshot(groupId, weekStart, memberId);
   const user = await store.getUser(memberId);
+  const awayDates = await listAwayDatesForWeek(store, memberId, weekStart);
+  const available = availableDaysInWeek(awayDates.length);
   const target = resolveWeeklyPointTarget(
     weekStart,
     group.weekStartsOn,
     membership,
     snapshot,
     user,
+    goals,
+    awayDates.length,
   );
   const current = isOpenWeek(weekStart, membership, user);
 
@@ -419,6 +434,7 @@ export async function getMemberWeekDetail(
       membership.status === 'active' ? user?.displayName ?? 'Member' : 'Former member',
     weekStartDate: weekStart,
     weekStartsOn: group.weekStartsOn,
+    awayDates,
     pointsEarned: completions.length,
     weeklyPointTarget: target,
     progressPercent: progressPercent(completions.length, target),
@@ -426,9 +442,12 @@ export async function getMemberWeekDetail(
       goalId: g.goalId,
       name: g.name,
       icon: g.icon,
-      targetDays: current
-        ? g.targetDaysPerWeek
-        : (snapshot?.goalTargetSnapshot[g.goalId] ?? g.targetDaysPerWeek),
+      targetDays: effectiveGoalTarget(
+        g.targetDaysPerWeek,
+        available,
+        current,
+        snapshot?.goalTargetSnapshot[g.goalId],
+      ),
       completedDays: goalCompletedDays(completions, g.goalId),
       dates: completions.filter((c) => c.goalId === g.goalId).map((c) => c.localDate),
     })),

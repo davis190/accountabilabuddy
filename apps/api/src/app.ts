@@ -10,6 +10,7 @@ import * as users from './services/users.js';
 import * as groups from './services/groups.js';
 import * as goals from './services/goals.js';
 import * as completions from './services/completions.js';
+import * as away from './services/away.js';
 import * as notifications from './services/notifications.js';
 import { recommendedWeeklyTarget } from '@accountabilabuddy/shared';
 
@@ -99,6 +100,18 @@ export function createApp(store: Store, config: AppConfig) {
     const body = await c.req.json();
     const user = await users.updateMe(store, c.get('user').userId, body);
     return c.json({ user });
+  });
+
+  v1.put('/me/away-days/:localDate', async (c) => {
+    await users.ensureUser(store, c.get('user'));
+    const result = await away.markAway(store, c.get('user').userId, c.req.param('localDate'));
+    return c.json(result);
+  });
+
+  v1.delete('/me/away-days/:localDate', async (c) => {
+    await users.ensureUser(store, c.get('user'));
+    const result = await away.unmarkAway(store, c.get('user').userId, c.req.param('localDate'));
+    return c.json(result);
   });
 
   v1.delete('/me', async (c) => {

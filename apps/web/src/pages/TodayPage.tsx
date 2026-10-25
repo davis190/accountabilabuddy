@@ -11,11 +11,14 @@ interface DayGoal {
   checked: boolean;
   completedDaysThisWeek: number;
   targetDaysPerWeek: number;
+  baseTargetDaysPerWeek?: number;
 }
 
 interface DayPayload {
   localDate: string;
   weekStartDate: string;
+  away: boolean;
+  awayDates: string[];
   pointsEarned: number;
   weeklyPointTarget: number;
   progressPercent: number;
@@ -26,17 +29,19 @@ export function TodayPage() {
   const { activeGroupId, user, memberships, refreshMe } = useAuth();
   const location = useLocation();
   const groupId = activeGroupId ?? memberships[0]?.groupId;
-  const liveTarget = memberships.find((m) => m.groupId === groupId)?.weeklyPointTarget;
   const [date, setDate] = useState(() => localToday(user?.timezone));
   const [day, setDay] = useState<DayPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
+  const [awayPending, setAwayPending] = useState(false);
 
   const weekDates = useMemo(() => {
     const start = weekStartMonday(date);
     return Array.from({ length: 7 }, (_, i) => addDays(start, i));
   }, [date]);
+
+  const awaySet = useMemo(() => new Set(day?.awayDates ?? []), [day?.awayDates]);
 
   const load = useCallback(async () => {
     if (!groupId) return;
@@ -48,17 +53,11 @@ export function TodayPage() {
         weekStartMonday(date) === weekStartMonday(today) ? date : today;
       if (viewDate !== date) setDate(viewDate);
       const data = await api<DayPayload>(`/v1/groups/${groupId}/days/${viewDate}/me`);
-      // Prefer the live membership target from /v1/me so Settings changes show immediately.
-      const target = liveTarget ?? data.weeklyPointTarget;
-      setDay({
-        ...data,
-        weeklyPointTarget: target,
-        progressPercent: Math.round((data.pointsEarned / Math.max(1, target)) * 1000) / 10,
-      });
+      setDay(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load today');
     }
-  }, [groupId, date, user?.timezone, liveTarget]);
+  }, [groupId, date, user?.timezone]);
 
   useEffect(() => {
     void refreshMe().catch(() => undefined);
@@ -85,8 +84,28 @@ export function TodayPage() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  async function toggleAway() {
+    if (!day || awayPending) return;
+    setAwayPending(true);
+    setError(null);
+    try {
+      if (day.away) {
+        await api(`/v1/me/away-days/${date}`, { method: 'DELETE' });
+        setToast('Away cleared');
+      } else {
+        await api(`/v1/me/away-days/${date}`, { method: 'PUT' });
+        setToast('Marked Away · check-offs cleared');
+      }
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update Away');
+    } finally {
+      setAwayPending(false);
+    }
+  }
+
   async function toggle(goal: DayGoal) {
-    if (!groupId || pending) return;
+    if (!groupId || pending || day?.away) return;
     const previous = day;
     setPending(goal.goalId);
     setDay((cur) => {
@@ -108,7 +127,7 @@ export function TodayPage() {
         ...cur,
         goals: nextGoals,
         pointsEarned,
-        progressPercent: Math.round((pointsEarned / cur.weeklyPointTarget) * 1000) / 10,
+        progressPercent: Math.round((pointsEarned / Math.max(1, cur.weeklyPointTarget)) * 1000) / 10,
       };
     });
 
@@ -132,7 +151,10 @@ export function TodayPage() {
                     ? {
                         ...g,
                         checked: false,
-                        completedDaysThisWeek: res.goalProgress?.completedDays ?? g.completedDaysThisWeek,
+                        completedDaysThisWeek:
+                          res.goalProgress?.completedDays ?? g.completedDaysThisWeek,
+                        targetDaysPerWeek:
+                          res.goalProgress?.targetDays ?? g.targetDaysPerWeek,
                       }
                     : g,
                 ),
@@ -158,6 +180,7 @@ export function TodayPage() {
                         ...g,
                         checked: true,
                         completedDaysThisWeek: res.goalProgress.completedDays,
+                        targetDaysPerWeek: res.goalProgress.targetDays,
                       }
                     : g,
                 ),
@@ -182,10 +205,8 @@ export function TodayPage() {
     );
   }
 
-  const displayTarget = liveTarget ?? day?.weeklyPointTarget ?? 1;
-  const displayPercent = day
-    ? Math.round((day.pointsEarned / Math.max(1, displayTarget)) * 1000) / 10
-    : 0;
+  const displayTarget = day?.weeklyPointTarget ?? 1;
+  const displayPercent = day?.progressPercent ?? 0;
   const over = displayPercent > 100;
 
   return (
@@ -213,6 +234,11 @@ export function TodayPage() {
               style={{ width: `${Math.min(displayPercent, 140)}%` }}
             />
           </div>
+          {awaySet.size > 0 && (
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+              {awaySet.size} Away day{awaySet.size === 1 ? '' : 's'} this week · targets adjusted
+            </p>
+          )}
         </div>
       )}
 
@@ -221,17 +247,42 @@ export function TodayPage() {
           <button
             key={d}
             type="button"
+            className={awaySet.has(d) ? 'away' : undefined}
             aria-pressed={d === date}
-            aria-label={d}
+            aria-label={awaySet.has(d) ? `${d}, Away` : d}
             onClick={() => setDate(d)}
           >
             <span className="dow">{shortDow(d)}</span>
             <span className="dom">{dayNum(d)}</span>
+            {awaySet.has(d) && <span className="away-dot">Away</span>}
           </button>
         ))}
       </div>
 
-      {!day?.goals.length ? (
+      {day && (
+        <div className="away-bar">
+          <button
+            type="button"
+            className={`btn btn-secondary${day.away ? ' away-active' : ''}`}
+            disabled={awayPending}
+            aria-pressed={day.away}
+            onClick={() => void toggleAway()}
+          >
+            {day.away ? 'Clear Away' : 'Mark Away'}
+          </button>
+          <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+            {day.away
+              ? 'Check-offs are paused. Targets for this week are lowered.'
+              : 'Traveling? Mark Away to pause check-offs and lower this week’s targets.'}
+          </p>
+        </div>
+      )}
+
+      {day?.away ? (
+        <div className="empty panel">
+          <p>You’re Away on this day — no check-offs.</p>
+        </div>
+      ) : !day?.goals.length ? (
         <div className="empty panel">
           <p>No active goals for this day.</p>
           <Link className="btn btn-secondary" to="/app/settings">

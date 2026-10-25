@@ -1,6 +1,6 @@
 # Accountabilabuddy
 
-Lightweight habit accountability for supportive groups. Mobile-first PWA: Google sign-in (Cognito), multiple isolated groups, daily check-offs, uncapped weekly points, friendly ties, full group-local history, and optional email reminders.
+Lightweight habit accountability for supportive groups. Mobile-first PWA: Google sign-in (Cognito), multiple isolated groups, daily check-offs, Away days that proportionally lower weekly targets, uncapped weekly points, friendly ties, full group-local history, and optional email reminders.
 
 Product rules and acceptance criteria live in [`spec.md`](./spec.md).
 
@@ -34,6 +34,7 @@ npm run build
 ## Core product rules (enforced in shared + API)
 
 - One point per goal per local day; weekly frequency does **not** cap points (`4/2` still contributes 4).
+- Away days (per person, current week) block check-offs and lower that week’s goal + point targets proportionally.
 - Groups are fully isolated (goals, targets, history, reminders).
 - Weekly comparison allows ties (`1, 2, 2, 4`); no hidden tie-breakers.
 - Completions are idempotent; future dates rejected; only the owner may write their check-offs.

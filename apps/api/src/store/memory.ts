@@ -4,6 +4,7 @@ import {
   groupUserWeekKey,
   groupWeekKey,
   weekStartDate,
+  type AwayDay,
   type Completion,
   type Goal,
   type Group,
@@ -26,6 +27,7 @@ export class MemoryStore implements Store {
   invitations = new Map<string, Invitation>();
   invitationsByHash = new Map<string, string>();
   deliveries = new Map<string, NotificationDelivery>();
+  awayDays = new Map<string, AwayDay>();
 
   async reset(): Promise<void> {
     this.users.clear();
@@ -37,6 +39,33 @@ export class MemoryStore implements Store {
     this.invitations.clear();
     this.invitationsByHash.clear();
     this.deliveries.clear();
+    this.awayDays.clear();
+  }
+
+  private awayKey(userId: string, localDate: string): string {
+    return `${userId}#${localDate}`;
+  }
+
+  async getAwayDay(userId: string, localDate: string): Promise<AwayDay | null> {
+    return this.awayDays.get(this.awayKey(userId, localDate)) ?? null;
+  }
+
+  async putAwayDay(away: AwayDay): Promise<void> {
+    this.awayDays.set(this.awayKey(away.userId, away.localDate), away);
+  }
+
+  async deleteAwayDay(userId: string, localDate: string): Promise<boolean> {
+    return this.awayDays.delete(this.awayKey(userId, localDate));
+  }
+
+  async listAwayDaysInRange(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<AwayDay[]> {
+    return [...this.awayDays.values()]
+      .filter((a) => a.userId === userId && a.localDate >= from && a.localDate <= to)
+      .sort((a, b) => a.localDate.localeCompare(b.localDate));
   }
 
   async getUser(userId: string): Promise<User | null> {

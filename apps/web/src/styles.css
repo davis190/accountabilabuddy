@@ -307,6 +307,42 @@ a {
   font-weight: 700;
 }
 
+.week-strip button.away:not([aria-pressed='true']) {
+  border-color: rgba(232, 140, 90, 0.55);
+  background: rgba(232, 140, 90, 0.12);
+}
+
+.week-strip .away-dot {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+.away-bar {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+}
+
+.away-bar .btn {
+  justify-self: start;
+  min-height: 40px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.away-bar .btn.away-active {
+  border-color: rgba(232, 140, 90, 0.65);
+  background: rgba(232, 140, 90, 0.16);
+}
+
+.heat-cell.away {
+  outline: 2px solid rgba(232, 140, 90, 0.75);
+  outline-offset: 1px;
+}
+
 .goal-list {
   display: grid;
   gap: 0.65rem;

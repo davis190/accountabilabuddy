@@ -82,6 +82,13 @@ export interface Completion {
   updatedAt: string;
 }
 
+/** Per-person Away day — blocks check-offs and proportionally lowers that week's targets. */
+export interface AwayDay {
+  userId: string;
+  localDate: string;
+  createdAt: string;
+}
+
 export interface WeeklySnapshot {
   groupId: string;
   weekStartDate: string;
@@ -128,6 +135,7 @@ export interface MemberWeekSummary {
   position: number;
   tied: boolean;
   statusLabel: 'On track' | 'Target reached' | 'Keep going';
+  awayDates?: string[];
   goalProgress: Array<{
     goalId: string;
     name: string;

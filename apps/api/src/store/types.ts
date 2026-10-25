@@ -1,4 +1,5 @@
 import type {
+  AwayDay,
   Completion,
   Goal,
   Group,
@@ -13,6 +14,11 @@ export interface Store {
   getUser(userId: string): Promise<User | null>;
   putUser(user: User): Promise<void>;
   deleteUser(userId: string): Promise<void>;
+
+  getAwayDay(userId: string, localDate: string): Promise<AwayDay | null>;
+  putAwayDay(away: AwayDay): Promise<void>;
+  deleteAwayDay(userId: string, localDate: string): Promise<boolean>;
+  listAwayDaysInRange(userId: string, from: string, to: string): Promise<AwayDay[]>;
 
   getGroup(groupId: string): Promise<Group | null>;
   putGroup(group: Group): Promise<void>;

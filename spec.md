@@ -174,6 +174,33 @@ Each membership has its own `weeklyPointTarget`, a positive integer. The recomme
 - The UI may display more than 100%; it must not clamp earned points or replace `12 / 10` with `10 / 10`.
 - Changing a target applies to the current and future weekly displays. To preserve historical meaning, a weekly snapshot of the target is recorded when a week first receives a completion or closes. Historical screens use that snapshot.
 - A user can set different targets in different groups.
+- When Away days exist in a week, the **effective** weekly target for progress is lowered (see §6.7). Snapshots for open weeks store the Away-adjusted values.
+
+### 6.7 Away days
+
+A member may mark local calendar days as **Away** (travel/vacation). Away is per person (applies across all groups), visible to group members, and intended as a light control for occasional trips.
+
+Rules:
+
+- Away may only be set or cleared for dates in the member’s **current week** (Monday-start week in the member’s timezone), including future days in that week.
+- Check-offs are blocked on Away days. Marking Away **clears** any completions already logged that day across all groups. Clearing Away does not restore those completions.
+- Targets for the week adjust **live** as soon as Away days are set.
+
+Adjustment formula, with `availableDays = 7 − awayDayCount`:
+
+```text
+adjustedGoalTarget =
+  0                                           if availableDays = 0
+  max(1, round(targetDaysPerWeek × availableDays / 7))   otherwise
+
+reduction = sum(originalGoalTarget − adjustedGoalTarget) across active goals
+
+adjustedWeeklyPointTarget =
+  0                                           if availableDays = 0
+  max(1, weeklyPointTarget − reduction)       otherwise
+```
+
+`round` is half-up. Goal and weekly floors are 1 unless the entire week is Away (then 0).
 
 ### 6.6 Week and timezone
 
@@ -555,6 +582,8 @@ Base path: `/v1`. JSON only. All authenticated endpoints require a Cognito acces
 | GET | `/me` | Get profile and memberships summary |
 | PATCH | `/me` | Update display name/timezone |
 | DELETE | `/me` | Begin confirmed account deletion |
+| PUT | `/me/away-days/{localDate}` | Mark a current-week day Away (clears check-offs) |
+| DELETE | `/me/away-days/{localDate}` | Clear Away for a current-week day |
 
 ### 13.2 Groups and membership
 
@@ -857,6 +886,14 @@ Do not optimize primarily for competition intensity or notification volume.
 - Two different goals checked on one day contribute two points.
 - A completion beyond the weekly point target continues increasing the displayed score and may display progress above 100%.
 - A future date and a date outside the goal’s active period are rejected.
+
+### 19.3b Away days
+
+- Marking a day Away clears that day’s completions across groups and rejects new check-offs for that date.
+- Away may only be set for dates in the current Monday-start week; next week is rejected.
+- With 3 Away days and goals 2/3/2 against a custom weekly target of 10, effective targets become 1/2/1 and weekly 7.
+- Group week comparison and history show Away days for each member.
+- Clearing Away does not restore previously cleared completions.
 
 ### 19.4 History and authorization
 

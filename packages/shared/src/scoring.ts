@@ -5,6 +5,38 @@ export function progressPercent(pointsEarned: number, weeklyPointTarget: number)
   return Math.round((pointsEarned / weeklyPointTarget) * 1000) / 10;
 }
 
+/**
+ * Adjust a goal's weekly target for Away days in the week.
+ * `availableDays` is 7 minus Away count in that week (0–7).
+ * Half-up round; floor at 1 unless the whole week is Away (available = 0 → 0).
+ */
+export function adjustedGoalTarget(targetDaysPerWeek: number, availableDays: number): number {
+  if (availableDays <= 0) return 0;
+  if (availableDays >= 7) return targetDaysPerWeek;
+  return Math.max(1, Math.round((targetDaysPerWeek * availableDays) / 7));
+}
+
+/**
+ * Lower the weekly point target by the same total the goals lost (Plan A).
+ * Floor at 1 unless the whole week is Away (then 0).
+ */
+export function adjustedWeeklyPointTarget(
+  weeklyPointTarget: number,
+  goalTargets: number[],
+  availableDays: number,
+): number {
+  if (availableDays <= 0) return 0;
+  if (availableDays >= 7) return weeklyPointTarget;
+  const reduction = goalTargets.reduce((sum, target) => {
+    return sum + (target - adjustedGoalTarget(target, availableDays));
+  }, 0);
+  return Math.max(1, weeklyPointTarget - reduction);
+}
+
+export function availableDaysInWeek(awayDayCount: number): number {
+  return Math.max(0, Math.min(7, 7 - awayDayCount));
+}
+
 export function statusLabel(
   pointsEarned: number,
   weeklyPointTarget: number,
@@ -41,6 +73,7 @@ export interface RankInput {
   avatarUrl?: string;
   pointsEarned: number;
   weeklyPointTarget: number;
+  awayDates?: string[];
   goalProgress: MemberWeekSummary['goalProgress'];
 }
 
@@ -81,6 +114,7 @@ export function assignTiedPositions(members: RankInput[]): MemberWeekSummary[] {
         position,
         tied,
         statusLabel: statusLabel(m.pointsEarned, m.weeklyPointTarget),
+        awayDates: m.awayDates,
         goalProgress: m.goalProgress,
       });
     }

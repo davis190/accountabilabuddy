@@ -353,4 +353,129 @@ describe('API acceptance paths', () => {
     ).find((m) => m.userId === 'user_a');
     expect(me?.weeklyPointTarget).toBe(24);
   });
+
+  it('marks Away, clears check-offs, blocks new ones, and lowers targets', async () => {
+    const today = todayInTimezone('UTC');
+    const weekStart = weekStartDate(today, 'monday');
+    const awayDate = addDays(weekStart, 2); // Wednesday of current week
+
+    const create = await app.request('/v1/groups', {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Away Club' }),
+    });
+    const group = (await json(create)).group as { groupId: string };
+
+    await app.request(`/v1/groups/${group.groupId}/membership/me`, {
+      method: 'PATCH',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weeklyPointTarget: 10 }),
+    });
+
+    const runRes = await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Run',
+        targetDaysPerWeek: 2,
+        activeFrom: weekStart,
+      }),
+    });
+    const run = (await json(runRes)).goal as { goalId: string };
+
+    await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Lift',
+        targetDaysPerWeek: 3,
+        activeFrom: weekStart,
+      }),
+    });
+    await app.request(`/v1/groups/${group.groupId}/goals`, {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Stretch',
+        targetDaysPerWeek: 2,
+        activeFrom: weekStart,
+      }),
+    });
+
+    // Only log a completion if Away day is not in the future.
+    if (awayDate <= today) {
+      const logged = await app.request(
+        `/v1/groups/${group.groupId}/completions/${awayDate}/${run.goalId}`,
+        { method: 'PUT', headers: auth() },
+      );
+      expect(logged.status).toBe(200);
+    }
+
+    const marked = await app.request(`/v1/me/away-days/${awayDate}`, {
+      method: 'PUT',
+      headers: auth(),
+    });
+    expect(marked.status).toBe(200);
+
+    // Completions on the Away day are cleared.
+    const day = await app.request(`/v1/groups/${group.groupId}/days/${awayDate}/me`, {
+      headers: auth(),
+    });
+    const dayBody = await json(day);
+    expect(dayBody.away).toBe(true);
+    // 1 Away → available 6: Run 2→2, Lift 3→3, Stretch 2→2; reduction 0; weekly stays 10
+    // With 3 Away we'd drop more — mark two more days.
+    expect((dayBody.goals as Array<{ checked: boolean }>).every((g) => !g.checked)).toBe(true);
+
+    const blocked = await app.request(
+      `/v1/groups/${group.groupId}/completions/${awayDate}/${run.goalId}`,
+      { method: 'PUT', headers: auth() },
+    );
+    expect(blocked.status).toBe(400);
+
+    // Mark enough Away days to reduce targets (3 Away → available 4).
+    const extraAway = [addDays(weekStart, 3), addDays(weekStart, 4)];
+    for (const d of extraAway) {
+      const res = await app.request(`/v1/me/away-days/${d}`, {
+        method: 'PUT',
+        headers: auth(),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    const adjusted = await app.request(`/v1/groups/${group.groupId}/days/${today}/me`, {
+      headers: auth(),
+    });
+    const adjustedBody = await json(adjusted);
+    // Run 2→1, Lift 3→2, Stretch 2→1; reduction 3; weekly 10→7
+    expect(adjustedBody.weeklyPointTarget).toBe(7);
+    const goals = adjustedBody.goals as Array<{
+      name: string;
+      targetDaysPerWeek: number;
+    }>;
+    expect(goals.find((g) => g.name === 'Run')?.targetDaysPerWeek).toBe(1);
+    expect(goals.find((g) => g.name === 'Lift')?.targetDaysPerWeek).toBe(2);
+    expect(goals.find((g) => g.name === 'Stretch')?.targetDaysPerWeek).toBe(1);
+
+    const cmp = await app.request(`/v1/groups/${group.groupId}/weeks/${weekStart}`, {
+      headers: auth(),
+    });
+    const me = (
+      (await json(cmp)).members as Array<{
+        userId: string;
+        weeklyPointTarget: number;
+        awayDates: string[];
+      }>
+    ).find((m) => m.userId === 'user_a');
+    expect(me?.weeklyPointTarget).toBe(7);
+    expect(me?.awayDates?.length).toBe(3);
+
+    // Next week cannot be marked Away.
+    const nextWeekDay = addDays(weekStart, 8);
+    const tooFar = await app.request(`/v1/me/away-days/${nextWeekDay}`, {
+      method: 'PUT',
+      headers: auth(),
+    });
+    expect(tooFar.status).toBe(400);
+  });
 });

@@ -155,6 +155,31 @@ Resources:
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
 
+  AwayDaysTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub accountabilabuddy-${Environment}-away-days
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: localDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: localDate
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: application
+          Value: accountabilabuddy
+        - Key: environment
+          Value: !Ref Environment
+
   CompletionsTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
@@ -373,6 +398,8 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref CompletionsTable
         - DynamoDBCrudPolicy:
+            TableName: !Ref AwayDaysTable
+        - DynamoDBCrudPolicy:
             TableName: !Ref WeeklySnapshotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref InvitationsTable
@@ -398,6 +425,7 @@ Resources:
           MEMBERSHIPS_TABLE: !Ref MembershipsTable
           GOALS_TABLE: !Ref GoalsTable
           COMPLETIONS_TABLE: !Ref CompletionsTable
+          AWAY_DAYS_TABLE: !Ref AwayDaysTable
           WEEKLY_SNAPSHOTS_TABLE: !Ref WeeklySnapshotsTable
           INVITATIONS_TABLE: !Ref InvitationsTable
           NOTIFICATION_DELIVERIES_TABLE: !Ref NotificationDeliveriesTable
