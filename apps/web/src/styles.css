@@ -321,13 +321,18 @@ a {
 }
 
 .away-bar {
-  display: grid;
-  gap: 0.45rem;
-  margin-bottom: 0.25rem;
+  margin: 0 0 0.35rem;
+}
+
+.away-bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .away-bar .btn {
-  justify-self: start;
+  flex-shrink: 0;
   min-height: 40px;
   padding: 0.4rem 0.9rem;
   font-size: 0.9rem;

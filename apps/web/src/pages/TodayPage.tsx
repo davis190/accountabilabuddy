@@ -85,11 +85,12 @@ export function TodayPage() {
   }, [toast]);
 
   async function toggleAway() {
-    if (!day || awayPending) return;
+    if (awayPending || !groupId) return;
+    const currentlyAway = Boolean(day?.away);
     setAwayPending(true);
     setError(null);
     try {
-      if (day.away) {
+      if (currentlyAway) {
         await api(`/v1/me/away-days/${date}`, { method: 'DELETE' });
         setToast('Away cleared');
       } else {
@@ -259,24 +260,27 @@ export function TodayPage() {
         ))}
       </div>
 
-      {day && (
-        <div className="away-bar">
+      <div className="away-bar panel">
+        <div className="away-bar-row">
+          <div>
+            <strong>{day?.away ? 'Away' : 'Not Away'}</strong>
+            <p className="muted" style={{ margin: '0.15rem 0 0', fontSize: '0.85rem' }}>
+              {day?.away
+                ? 'Check-offs are paused. Targets for this week are lowered.'
+                : 'Traveling? Pause check-offs for this day and lower this week’s targets.'}
+            </p>
+          </div>
           <button
             type="button"
-            className={`btn btn-secondary${day.away ? ' away-active' : ''}`}
-            disabled={awayPending}
-            aria-pressed={day.away}
+            className={`btn btn-secondary${day?.away ? ' away-active' : ''}`}
+            disabled={awayPending || !groupId}
+            aria-pressed={Boolean(day?.away)}
             onClick={() => void toggleAway()}
           >
-            {day.away ? 'Clear Away' : 'Mark Away'}
+            {day?.away ? 'Clear Away' : 'Mark Away'}
           </button>
-          <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-            {day.away
-              ? 'Check-offs are paused. Targets for this week are lowered.'
-              : 'Traveling? Mark Away to pause check-offs and lower this week’s targets.'}
-          </p>
         </div>
-      )}
+      </div>
 
       {day?.away ? (
         <div className="empty panel">
