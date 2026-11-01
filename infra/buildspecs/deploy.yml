@@ -58,10 +58,18 @@ phases:
           --exclude "index.html" --exclude "sw.js" --exclude "manifest.webmanifest" --exclude "registerSW.js"
         aws s3 cp apps/web/dist/index.html "s3://${WEB_BUCKET}/index.html" \
           --cache-control "public,max-age=60" --content-type text/html
+        # Browsers only pick up a new app version when sw.js changes, so these must never be cached long.
+        aws s3 cp apps/web/dist/sw.js "s3://${WEB_BUCKET}/sw.js" \
+          --cache-control "no-cache" --content-type text/javascript
+        aws s3 cp apps/web/dist/registerSW.js "s3://${WEB_BUCKET}/registerSW.js" \
+          --cache-control "no-cache" --content-type text/javascript
+        aws s3 cp apps/web/dist/manifest.webmanifest "s3://${WEB_BUCKET}/manifest.webmanifest" \
+          --cache-control "no-cache" --content-type application/manifest+json
         DIST_ID=$(aws cloudfront list-distributions \
           --query "DistributionList.Items[?DomainName=='${DIST_DOMAIN}'].Id" \
           --output text)
         if [ -n "$DIST_ID" ] && [ "$DIST_ID" != "None" ]; then
-          aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths "/index.html" "/sw.js" "/manifest.webmanifest"
+          aws cloudfront create-invalidation --distribution-id "$DIST_ID" \
+            --paths "/index.html" "/sw.js" "/registerSW.js" "/manifest.webmanifest"
         fi
         echo "Deployed CloudFront domain: ${DIST_DOMAIN}"

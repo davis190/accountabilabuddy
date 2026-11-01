@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { InstallHint } from '../components/InstallHint';
 import { localToday } from '../lib/dates';
 
 interface Goal {
@@ -156,6 +157,7 @@ export function SettingsPage() {
       <h2 className="section-title">Settings</h2>
       {error && <div className="error-banner">{error}</div>}
       {message && <p className="pill">{message}</p>}
+      <InstallHint />
 
       <section className="panel stack-gap">
         <h3 style={{ margin: 0 }}>Your goals</h3>

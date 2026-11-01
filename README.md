@@ -31,6 +31,8 @@ npm test
 npm run build
 ```
 
+Home-screen / PWA icons in `apps/web/public` are generated from `favicon.svg` and `apps/web/icons/icon-full-bleed.svg`. After changing either, run `./scripts/generate-icons.sh` (needs `brew install librsvg imagemagick`) and commit the PNGs.
+
 ## Core product rules (enforced in shared + API)
 
 - One point per goal per local day; weekly frequency does **not** cap points (`4/2` still contributes 4).

@@ -522,6 +522,46 @@ a {
   font-weight: 700;
 }
 
+.install-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.install-hint p {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+}
+
+.install-hint .share-glyph {
+  vertical-align: -2px;
+}
+
+.install-hint-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.install-hint-actions .btn {
+  min-height: 40px;
+  padding: 0.4rem 0.95rem;
+}
+
+.install-hint-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 1.4rem;
+  line-height: 1;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
 .error-banner {
   background: rgba(231, 111, 81, 0.12);
   border: 1px solid rgba(231, 111, 81, 0.35);
