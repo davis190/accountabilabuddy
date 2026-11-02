@@ -478,4 +478,26 @@ describe('API acceptance paths', () => {
     });
     expect(tooFar.status).toBe(400);
   });
+
+  it('copies a profile timezone change onto active memberships', async () => {
+    await app.request('/v1/groups', {
+      method: 'POST',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Run Club' }),
+    });
+    const [before] = await store.listMembershipsByUser('user_a');
+    expect(before?.timezone).toBe('UTC');
+
+    const res = await app.request('/v1/me', {
+      method: 'PATCH',
+      headers: { ...auth(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timezone: 'America/Chicago' }),
+    });
+    expect(res.status).toBe(200);
+    expect(((await json(res)).user as { timezone: string }).timezone).toBe('America/Chicago');
+
+    const [after] = await store.listMembershipsByUser('user_a');
+    expect(after?.timezone).toBe('America/Chicago');
+    expect(after?.version).toBe((before?.version ?? 0) + 1);
+  });
 });

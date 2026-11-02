@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { InstallHint } from '../components/InstallHint';
-import { localToday } from '../lib/dates';
+import { deviceTimeZone, localToday, timeZoneOptions } from '../lib/dates';
 
 interface Goal {
   goalId: string;
@@ -27,6 +27,11 @@ export function SettingsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingGoalId, setSavingGoalId] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState(() => user?.timezone ?? deviceTimeZone());
+
+  useEffect(() => {
+    if (user?.timezone) setTimezone(user.timezone);
+  }, [user?.timezone]);
 
   async function reload() {
     if (!groupId) return;
@@ -121,6 +126,17 @@ export function SettingsPage() {
     }
   }
 
+  async function saveTimezone() {
+    setError(null);
+    try {
+      await api('/v1/me', { method: 'PATCH', body: JSON.stringify({ timezone }) });
+      await refreshMe();
+      setMessage('Timezone saved');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save timezone');
+    }
+  }
+
   async function saveReminders() {
     await api(`/v1/groups/${groupId}/membership/me`, {
       method: 'PATCH',
@@ -158,6 +174,40 @@ export function SettingsPage() {
       {error && <div className="error-banner">{error}</div>}
       {message && <p className="pill">{message}</p>}
       <InstallHint />
+
+      <section className="panel form-stack">
+        <h3 style={{ margin: 0 }}>Timezone</h3>
+        <p className="muted" style={{ margin: 0 }}>
+          Decides when your day rolls over and when reminders arrive, in every group.
+        </p>
+        <label>
+          Your timezone
+          <select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+            {timeZoneOptions(timezone).map((tz) => (
+              <option key={tz} value={tz}>
+                {tz.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </label>
+        {timezone !== deviceTimeZone() && (
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => setTimezone(deviceTimeZone())}
+          >
+            Use this device’s timezone ({deviceTimeZone().replace(/_/g, ' ')})
+          </button>
+        )}
+        <button
+          className="btn btn-primary"
+          type="button"
+          disabled={!user || timezone === user.timezone}
+          onClick={() => void saveTimezone()}
+        >
+          Save timezone
+        </button>
+      </section>
 
       <section className="panel stack-gap">
         <h3 style={{ margin: 0 }}>Your goals</h3>

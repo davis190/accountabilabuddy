@@ -1,8 +1,20 @@
 /** Local calendar helpers for the browser timezone. */
 
+export function deviceTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** All IANA timezones the browser knows, always including `current`. */
+export function timeZoneOptions(current: string): string[] {
+  const zones = new Set(Intl.supportedValuesOf('timeZone'));
+  zones.add('UTC');
+  zones.add(current);
+  return [...zones].sort();
+}
+
 export function localToday(timeZone?: string): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    timeZone: timeZone || deviceTimeZone(),
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

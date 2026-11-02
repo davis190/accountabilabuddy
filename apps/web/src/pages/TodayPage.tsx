@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -30,6 +30,7 @@ export function TodayPage() {
   const location = useLocation();
   const groupId = activeGroupId ?? memberships[0]?.groupId;
   const [date, setDate] = useState(() => localToday(user?.timezone));
+  const lastTodayRef = useRef(date);
   const [day, setDay] = useState<DayPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -48,9 +49,11 @@ export function TodayPage() {
     setError(null);
     try {
       const today = localToday(user?.timezone);
-      // Jump to today when the stored day is in another week (stale tab / overnight).
+      const wasViewingToday = date === lastTodayRef.current;
+      lastTodayRef.current = today;
+      // Follow the day rollover if the user was on "today"; otherwise only jump when the week changed.
       const viewDate =
-        weekStartMonday(date) === weekStartMonday(today) ? date : today;
+        wasViewingToday || weekStartMonday(date) !== weekStartMonday(today) ? today : date;
       if (viewDate !== date) setDate(viewDate);
       const data = await api<DayPayload>(`/v1/groups/${groupId}/days/${viewDate}/me`);
       setDay(data);
@@ -77,6 +80,13 @@ export function TodayPage() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [load, refreshMe]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (localToday(user?.timezone) !== lastTodayRef.current) void load();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [load, user?.timezone]);
 
   useEffect(() => {
     if (!toast) return;

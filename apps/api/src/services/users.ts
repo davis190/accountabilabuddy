@@ -44,6 +44,13 @@ export async function updateMe(
     next.timezone = requireTimezone(body.timezone);
   }
   await store.putUser(next);
+  if (next.timezone !== user.timezone) {
+    // Memberships keep their own copy, and it takes precedence for "today" and reminders.
+    const memberships = await store.listMembershipsByUser(userId);
+    for (const m of memberships.filter((x) => x.status === 'active')) {
+      await store.putMembership({ ...m, timezone: next.timezone, version: m.version + 1 });
+    }
+  }
   return next;
 }
 

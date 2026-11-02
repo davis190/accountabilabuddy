@@ -17,6 +17,7 @@ import {
   loadTokens,
   type CognitoTokens,
 } from './lib/cognito';
+import { deviceTimeZone } from './lib/dates';
 
 export interface MeUser {
   userId: string;
@@ -66,7 +67,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: MeUser;
       memberships: MembershipSummary[];
     }>('/v1/me');
-    setUser(data.user);
+    let me = data.user;
+    // New accounts start on the server's UTC default; invite-link signups never get past it.
+    const deviceTz = deviceTimeZone();
+    if (me.timezone === 'UTC' && deviceTz && deviceTz !== 'UTC') {
+      try {
+        const res = await api<{ user: MeUser }>('/v1/me', {
+          method: 'PATCH',
+          body: JSON.stringify({ timezone: deviceTz }),
+        });
+        me = res.user;
+      } catch {
+        // Keep the stored value; Settings lets the user fix it by hand.
+      }
+    }
+    setUser(me);
     setMemberships(data.memberships);
     if (!activeGroupId && data.memberships[0]) {
       setActiveGroupIdState(data.memberships[0].groupId);
